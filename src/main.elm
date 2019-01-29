@@ -5,7 +5,8 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http
-import Json.Decode exposing (Decoder, field, string)
+import Json.Decode as Decode exposing (Decoder, float, int, string)
+import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 
 
 
@@ -32,10 +33,23 @@ type alias Model =
     }
 
 
+type alias QuestProgress =
+    { progress : Progress
+    , active : Bool
+    , key : String
+    , members : List String
+    }
+
+
 type GetResult
     = Failure
     | Success String
     | InProgress
+
+
+type Progress
+    = Collect String
+    | Boss Float
 
 
 init : () -> ( Model, Cmd Msg )
@@ -66,9 +80,13 @@ update msg model =
             ( { model | apiKey = apiKey }, Cmd.none )
 
         SubmitPair ->
-            ( { model | username = String.reverse model.username }, Cmd.none )
+            ( model, getPartyStatus model.username model.apiKey )
 
         GotStat result ->
+            let
+                a =
+                    Debug.log "result" result
+            in
             case result of
                 Ok url ->
                     ( { model | curStat = Success url }, Cmd.none )
@@ -144,7 +162,7 @@ getPartyStatus username apiKey =
     Http.request
         { method = "GET"
         , headers = createAuthHeader username apiKey
-        , url = "https://habitica.com/api/v3/groups?type=party"
+        , url = "https://habitica.com/api/v3/groups/party"
         , body = Http.emptyBody
         , expect = Http.expectString GotStat
         , timeout = Nothing
