@@ -1,13 +1,13 @@
 module Main exposing (GetResult(..), Model, Msg(..), createAuthHeader, getPartyStatus, init, main, statDecoder, subscriptions, update, view, viewResult)
 
 import Browser
+import Dict exposing (Dict)
 import Html exposing (..)
-import Html.Attributes exposing (attribute,placeholder,value, type_)
+import Html.Attributes exposing (attribute, placeholder, type_, value)
 import Html.Events exposing (..)
 import Http
-import Json.Decode as Decode exposing (succeed, Decoder, float, int, string, bool, field,list, andThen, oneOf, null, dict)
-import Json.Decode.Pipeline exposing ( hardcoded, optional, required, requiredAt, optionalAt)
-import Dict exposing (Dict)
+import Json.Decode as Decode exposing (Decoder, andThen, bool, dict, field, float, int, list, null, oneOf, string, succeed)
+import Json.Decode.Pipeline exposing (hardcoded, optional, optionalAt, required, requiredAt)
 
 
 
@@ -36,22 +36,27 @@ type alias Model =
 
 type alias QuestProgress =
     { -- There was a reason this was preferable. But I can't figure out how to decode to this.
-    --progress : Progress 
-     prog : ProgRecord
+      --progress : Progress
+      prog : ProgRecord
     , active : Bool
     , key : String
     , members : Dict String Bool
     }
 
--- Use this instead of the one just above. 
--- If quest is not active, we shouldn't save quest details. 
-type QuestStatus 
+
+
+-- Use this instead of the one just above.
+-- If quest is not active, we shouldn't save quest details.
+
+
+type QuestStatus
     = NoQuest
     | Quest
-    { progress : Progress
-    , key : String
-    , members : Dict String Bool
-    }
+        { progress : Progress
+        , key : String
+        , members : Dict String Bool
+        }
+
 
 type GetResult
     = Failure
@@ -62,6 +67,7 @@ type GetResult
 type Progress
     = Collect (Dict String Int)
     | Boss Float
+
 
 type alias ProgRecord =
     { collect : Dict String Bool
@@ -74,6 +80,8 @@ init _ =
     ( Model "" "" InProgress
     , Cmd.none
     )
+
+
 
 -- UPDATE
 
@@ -104,35 +112,48 @@ update msg model =
             in
             case result of
                 Ok state ->
-                    ( 
-                       let str =
+                    ( let
+                        str =
                             printableQuestProg state
-                        in
+                      in
+                      { model | curStat = Success str }
+                    , Cmd.none
+                    )
 
-                        { model | curStat = Success str }, Cmd.none )
-                    
                 Err _ ->
                     ( { model | curStat = Failure }, Cmd.none )
 
+
+
 -- I would like this in the Model so it can actually be printed nicely
--- but how to init nested records? 
+-- but how to init nested records?
+
+
 printableQuestProg : QuestProgress -> String
 printableQuestProg prog =
     if prog.active == True then
-        "The quest is active \n" ++
-        " the key is " ++ prog.key ++
-        " there are " ++ String.fromInt(Dict.size prog.members) ++ " members\n"
-        ++ checkProgress prog
-        else
+        "The quest is active \n"
+            ++ " the key is "
+            ++ prog.key
+            ++ " there are "
+            ++ String.fromInt (Dict.size prog.members)
+            ++ " members\n"
+            ++ checkProgress prog
+
+    else
         "There is no quest active."
+
 
 checkProgress : QuestProgress -> String
 checkProgress q_prog =
     if Dict.isEmpty q_prog.prog.collect then
-        "Boss battle. " ++
-        "HP = " ++ String.fromFloat(q_prog.prog.boss)
-        else
+        "Boss battle. "
+            ++ "HP = "
+            ++ String.fromFloat q_prog.prog.boss
+
+    else
         "We're collecting shit I guess"
+
 
 
 -- SUBSCRIPTIONS
@@ -185,7 +206,7 @@ viewResult model =
 
         Success stat ->
             div []
-                [ text ("look we succeed " ++ stat )
+                [ text ("look we succeed " ++ stat)
                 ]
 
         InProgress ->
@@ -210,23 +231,34 @@ getPartyStatus username apiKey =
         , tracker = Nothing
         }
 
--- You have access to all the json in here. 
--- Check active andThen parse the other fields as necessary. 
+
+
+-- You have access to all the json in here.
+-- Check active andThen parse the other fields as necessary.
+
+
 statDecoder : Decoder QuestProgress
-statDecoder = 
+statDecoder =
     succeed QuestProgress
-     |> requiredAt ["data","quest","progress"] progressDecoder
-     |> requiredAt ["data","quest","active"] bool
-     |> requiredAt ["data","quest","key"] string 
-     |> requiredAt ["data","quest","members"] (dict bool)
-     
--- how to decode into union instead of record? 
+        |> requiredAt [ "data", "quest", "progress" ] progressDecoder
+        |> requiredAt [ "data", "quest", "active" ] bool
+        |> requiredAt [ "data", "quest", "key" ] string
+        |> requiredAt [ "data", "quest", "members" ] (dict bool)
+
+
+
+-- how to decode into union instead of record?
 -- check one field then the other?
+
+
 progressDecoder : Decoder ProgRecord
-progressDecoder = 
-    succeed ProgRecord 
-    |> optional "collect" (dict bool) Dict.empty
-    |> optional "hp" float 0.0
+progressDecoder =
+    succeed ProgRecord
+        |> optional "collect" (dict bool) Dict.empty
+        |> optional "hp" float 0.0
+
+
+
 {--
  "progress":{  
             "collect":{  
@@ -235,14 +267,15 @@ progressDecoder =
             "hp":100
          },
 --}
+
+
 progDecoder : Decoder Progress
-progDecoder = 
+progDecoder =
     -- check one field then the other
     -- what is hp when there is no boss fight?
     succeed Boss
-    |> optional "hp" float 0.0
+        |> optional "hp" float 0.0
 
-    
 
 createAuthHeader : String -> String -> List Http.Header
 createAuthHeader username apikey =
