@@ -5,7 +5,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http
-import Json.Decode as Decode exposing (Decoder, float, int, string)
+import Json.Decode as Decode exposing (Decoder, float, int, string, bool, field)
 import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 
 
@@ -67,7 +67,7 @@ type Msg
     = UpdateUsername String
     | UpdateApikey String
     | SubmitPair
-    | GotStat (Result Http.Error String)
+    | GotStat (Result Http.Error Bool)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -88,9 +88,17 @@ update msg model =
                     Debug.log "result" result
             in
             case result of
-                Ok url ->
-                    ( { model | curStat = Success url }, Cmd.none )
+                Ok state ->
+                    ( 
+                       let str =
+                            if state == True then
+                            "quest active"
+                            else
+                            "no quest"
+                        in
 
+                        { model | curStat = Success str }, Cmd.none )
+                    
                 Err _ ->
                     ( { model | curStat = Failure }, Cmd.none )
 
@@ -130,6 +138,8 @@ view model =
             ]
         , div [] [ text model.username ]
         , div [] [ text model.apiKey ]
+        , br [] []
+        , viewResult model
         ]
 
 
@@ -142,9 +152,9 @@ viewResult model =
                 , button [] [ text "Yeah, this sucked." ]
                 ]
 
-        Success url ->
+        Success stat ->
             div []
-                [ text "look we succeed"
+                [ text ("look we succeed " ++ stat )
                 ]
 
         InProgress ->
@@ -164,18 +174,15 @@ getPartyStatus username apiKey =
         , headers = createAuthHeader username apiKey
         , url = "https://habitica.com/api/v3/groups/party"
         , body = Http.emptyBody
-        , expect = Http.expectString GotStat
+        , expect = Http.expectJson GotStat statDecoder
         , timeout = Nothing
         , tracker = Nothing
         }
 
 
-statDecoder : String -> Html Msg
-statDecoder resulting =
-    div []
-        [ h2 [] [ text "String Vomit" ]
-        , text resulting
-        ]
+statDecoder : Decoder Bool
+statDecoder = 
+    field "data" (field "quest" ( field "active" bool))
 
 
 createAuthHeader : String -> String -> List Http.Header
