@@ -9,6 +9,7 @@ import Http
 import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, float, int, keyValuePairs, list, map2, null, oneOf, string, succeed)
 import Json.Decode.Pipeline exposing (hardcoded, optional, optionalAt, required, requiredAt)
 import List exposing (append)
+import Task exposing (Task, attempt)
 
 
 
@@ -90,8 +91,10 @@ type Msg
     | UpdateBoxen String
     | SubmitPair
     | SubmitMem String
+    | SubmitMems
     | GotStat (Result Http.Error QuestStatus)
     | GotMem (Result Http.Error MemberStatus)
+    | GotMems (Result Http.Error MemberStatus)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -110,7 +113,10 @@ update msg model =
             ( model, getPartyStatus model.username model.apiKey )
 
         SubmitMem id ->
-            ( model, Cmd.batch [ getMemberStatus model model.username model.apiKey id, getPartyStatus model.username model.apiKey ] )
+            ( model, Cmd.batch [ getPartyStatus model.username model.apiKey, getMemberStatus model model.username model.apiKey id ] )
+
+        SubmitMems ->
+            ( model, Task.attempt GotMems (getAllMembers model model.username model.apiKey model.boxen) )
 
         GotStat result ->
             let
@@ -134,6 +140,18 @@ update msg model =
             case result of
                 Ok state ->
                     ( { model | curMembers = List.append model.curMembers [ state ] }, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
+        GotMems result ->
+            let
+                a =
+                    Debug.log "result" result
+            in
+            case result of
+                Ok state ->
+                    ( { model | curMembers = [ state ] }, Cmd.none )
 
                 Err _ ->
                     ( model, Cmd.none )
@@ -301,6 +319,42 @@ getMemberStatus model username apiKey id =
         }
 
 
+getAllMembers : Model -> String -> String -> String -> Task Http.Error MemberStatus
+getAllMembers model username apiKey id =
+    Http.task
+        { method = "GET"
+        , headers = createAuthHeader username apiKey
+        , url = "https://habitica.com/api/v3/members/" ++ id
+        , body = Http.emptyBody
+        , resolver = Http.stringResolver <| handleJsonResponse <| memDecoder (isBossQuest model.curQuest)
+        , timeout = Nothing
+        }
+
+
+handleJsonResponse : Decoder a -> Http.Response String -> Result Http.Error a
+handleJsonResponse decoder response =
+    case response of
+        Http.BadUrl_ url ->
+            Err (Http.BadUrl url)
+
+        Http.Timeout_ ->
+            Err Http.Timeout
+
+        Http.BadStatus_ { statusCode } _ ->
+            Err (Http.BadStatus statusCode)
+
+        Http.NetworkError_ ->
+            Err Http.NetworkError
+
+        Http.GoodStatus_ _ body ->
+            case Decode.decodeString decoder body of
+                Err _ ->
+                    Err (Http.BadBody body)
+
+                Ok result ->
+                    Ok result
+
+
 statDecoder : Decoder QuestStatus
 statDecoder =
     succeed identity
@@ -361,7 +415,7 @@ memDecoder bossQuest =
         checkSleep napping =
             if napping then
                 succeed MemberStatus
-                    |> requiredAt [ "data", "auth", "local", "username" ] string
+                    |> requiredAt usernamePath string
                     |> hardcoded Asleep
 
             else
@@ -380,10 +434,15 @@ memDecoder bossQuest =
         |> Decode.andThen checkSleep
 
 
+usernamePath : List String
+usernamePath =
+    [ "data", "auth", "local", "username" ]
+
+
 memBossDecoder : Decoder MemberStatus
 memBossDecoder =
     map2 MemberStatus
-        (at [ "data", "auth", "local", "username" ] string)
+        (at usernamePath string)
         (Decode.map
             MemBoss
             (at [ "data", "party", "quest", "progress", "up" ] float)
@@ -398,11 +457,6 @@ memCollectDecoder =
             MemCollect
             (at [ "data", "party", "quest", "progress", "collectedItems" ] int)
         )
-
-
-user : MemberStatus
-user =
-    MemberStatus "Allison" (MemBoss 6.4)
 
 
 createAuthHeader : String -> String -> List Http.Header
