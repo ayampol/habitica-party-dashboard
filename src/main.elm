@@ -3,10 +3,10 @@ module Main exposing (GetResult(..), Model, Msg(..), createAuthHeader, getPartyS
 import Browser
 import Dict exposing (Dict)
 import Html exposing (..)
-import Html.Attributes exposing (attribute, placeholder, type_, value)
+import Html.Attributes exposing (attribute, placeholder, style, type_, value)
 import Html.Events exposing (..)
 import Http
-import Json.Decode as Decode exposing (Decoder, andThen, bool, dict, field, float, int, keyValuePairs, list, null, oneOf, string, succeed)
+import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, float, int, keyValuePairs, list, map2, null, oneOf, string, succeed)
 import Json.Decode.Pipeline exposing (hardcoded, optional, optionalAt, required, requiredAt)
 import List exposing (append)
 
@@ -50,17 +50,16 @@ type alias QuestRecord =
     }
 
 
-type MemberStatus
-    = Inactive String
-    | Active MemberProgress
-
-
-type alias MemberProgress =
-    { up : Float
-    , down : Float
-    , collected : Int
-    , username : String
+type alias MemberStatus =
+    { username : String
+    , memProgress : MemberProgress
     }
+
+
+type MemberProgress
+    = MemBoss Float
+    | MemCollect Int
+    | Asleep
 
 
 type GetResult
@@ -155,21 +154,10 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    div []
-        [ input
-            [ placeholder "Enter username"
-            , value model.username
-            , onInput UpdateUsername
-            ]
-            []
+    div [ style "textAlign" "center" ]
+        [ textInput Nothing "Enter username" model.username UpdateUsername
         , br [] []
-        , input
-            [ type_ "password"
-            , placeholder "Enter API key"
-            , value model.apiKey
-            , onInput UpdateApikey
-            ]
-            []
+        , textInput (Just "password") "Enter API key" model.apiKey UpdateApikey
         , div []
             [ button [ onClick SubmitPair ] [ text "sUBMIT" ]
             ]
@@ -178,12 +166,7 @@ view model =
         , br [] []
         , viewResult model
         , br [] []
-        , input
-            [ placeholder "Enter a member ID"
-            , value model.boxen
-            , onInput UpdateBoxen
-            ]
-            []
+        , textInput Nothing "Enter a member ID" model.boxen UpdateBoxen
         , div []
             [ button [ onClick (SubmitMem model.boxen) ]
                 [ text "Get one member" ]
@@ -191,18 +174,25 @@ view model =
         ]
 
 
-
-{--
-textInput : String -> String -> String -> Msg -> Html Msg
-textInput whattype holdtext modelvalue updatemsg =
+textInput : Maybe String -> String -> String -> (String -> Msg) -> Html Msg
+textInput whatType holdText modelValue updateMsg =
     input
-        [ type_ whattype
-        , placeholder holdtext
-        , value modelvalue
-        , onInput updatemsg
+        [ hasInputType whatType
+        , placeholder holdText
+        , value modelValue
+        , onInput updateMsg
         ]
         []
-        --}
+
+
+hasInputType : Maybe String -> Attribute Msg
+hasInputType whattype =
+    case whattype of
+        Just str ->
+            type_ str
+
+        Nothing ->
+            type_ "text"
 
 
 viewResult : Model -> Html Msg
@@ -241,33 +231,31 @@ viewQuest model =
                 , text ("Key is " ++ rec.key)
                 , br [] []
                 , viewProgress rec
-                , ul [] (List.map viewMemberUp model.curMembers)
+                , ul [] (List.map viewMember model.curMembers)
                 ]
 
 
-viewMemberUp : MemberStatus -> Html Msg
-viewMemberUp mem =
-    case mem of
-        Inactive str ->
+viewMember : MemberStatus -> Html Msg
+viewMember mem =
+    case mem.memProgress of
+        Asleep ->
             div []
-                [ text (str ++ " is taking a nap.")
+                [ text (mem.username ++ " is taking a nap.")
                 ]
 
-        Active progress ->
+        MemBoss progress ->
             div []
-                [ text ("Username: " ++ progress.username)
+                [ text ("Username: " ++ mem.username)
                 , br [] []
-                , text ("Up: " ++ String.fromFloat progress.up)
+                , text ("Up: " ++ String.fromFloat progress)
                 ]
 
-
-viewMemberCollected : MemberProgress -> Html Msg
-viewMemberCollected mem =
-    div []
-        [ text ("Username: " ++ mem.username)
-        , br [] []
-        , text ("Up: " ++ String.fromFloat mem.up)
-        ]
+        MemCollect progress ->
+            div []
+                [ text ("Username: " ++ mem.username)
+                , br [] []
+                , text ("Items Collected: " ++ String.fromInt progress)
+                ]
 
 
 viewProgress : QuestRecord -> Html Msg
@@ -307,7 +295,7 @@ getMemberStatus model username apiKey id =
         , headers = createAuthHeader username apiKey
         , url = "https://habitica.com/api/v3/members/" ++ id
         , body = Http.emptyBody
-        , expect = Http.expectJson GotMem memDecoder
+        , expect = Http.expectJson GotMem (memDecoder (isBossQuest model.curQuest))
         , timeout = Nothing
         , tracker = Nothing
         }
@@ -351,25 +339,70 @@ checkCollect col =
             |> required "collect" (keyValuePairs int)
 
 
-sleepCheck : Bool -> Decoder MemberStatus
-sleepCheck napping =
-    if napping then
-        succeed identity
-            |> requiredAt [ "data", "auth", "local", "username" ] string
-            |> Decode.map Inactive
+isBossQuest : QuestStatus -> Bool
+isBossQuest stat =
+    case stat of
+        NoQuest ->
+            False
 
-    else
-        memDecoder
+        Quest rec ->
+            case rec.progress of
+                Boss _ ->
+                    True
+
+                Collect _ ->
+                    False
 
 
-memDecoder : Decoder MemberStatus
-memDecoder =
-    succeed MemberProgress
-        |> requiredAt [ "data", "party", "quest", "progress", "up" ] float
-        |> requiredAt [ "data", "party", "quest", "progress", "down" ] float
-        |> requiredAt [ "data", "party", "quest", "progress", "collectedItems" ] int
-        |> requiredAt [ "data", "auth", "local", "username" ] string
-        |> Decode.map Active
+memDecoder : Bool -> Decoder MemberStatus
+memDecoder bossQuest =
+    let
+        checkSleep : Bool -> Decoder MemberStatus
+        checkSleep napping =
+            if napping then
+                succeed MemberStatus
+                    |> requiredAt [ "data", "auth", "local", "username" ] string
+                    |> hardcoded Asleep
+
+            else
+                awakeDecoder
+
+        awakeDecoder : Decoder MemberStatus
+        awakeDecoder =
+            if bossQuest then
+                memBossDecoder
+
+            else
+                memCollectDecoder
+    in
+    succeed identity
+        |> requiredAt [ "data", "preferences", "sleep" ] bool
+        |> Decode.andThen checkSleep
+
+
+memBossDecoder : Decoder MemberStatus
+memBossDecoder =
+    map2 MemberStatus
+        (at [ "data", "auth", "local", "username" ] string)
+        (Decode.map
+            MemBoss
+            (at [ "data", "party", "quest", "progress", "up" ] float)
+        )
+
+
+memCollectDecoder : Decoder MemberStatus
+memCollectDecoder =
+    map2 MemberStatus
+        (at [ "data", "auth", "local", "username" ] string)
+        (Decode.map
+            MemCollect
+            (at [ "data", "party", "quest", "progress", "collectedItems" ] int)
+        )
+
+
+user : MemberStatus
+user =
+    MemberStatus "Allison" (MemBoss 6.4)
 
 
 createAuthHeader : String -> String -> List Http.Header
