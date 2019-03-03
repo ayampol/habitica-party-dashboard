@@ -88,13 +88,7 @@ init _ =
 type Msg
     = UpdateUsername String
     | UpdateApikey String
-    | UpdateBoxen String
-    | SubmitPair
     | SubmitAll
-    | SubmitMem String
-    | GotStat (Result Http.Error QuestStatus)
-    | GotMem (Result Http.Error MemberStatus)
-    | GotMems (Result Http.Error MemberStatus)
     | GotAllMems (Result Http.Error ( QuestStatus, List MemberStatus ))
 
 
@@ -107,55 +101,8 @@ update msg model =
         UpdateApikey apiKey ->
             ( { model | apiKey = apiKey }, Cmd.none )
 
-        UpdateBoxen boxen ->
-            ( { model | boxen = boxen }, Cmd.none )
-
-        SubmitPair ->
-            ( model, Task.attempt GotStat (getPartyStatus model.username model.apiKey) )
-
-        SubmitMem id ->
-            ( model, Task.attempt GotMems (getMemberStatus model.curQuest model.username model.apiKey model.boxen) )
-
         SubmitAll ->
             ( model, Task.attempt GotAllMems (getAllMembers model) )
-
-        GotStat result ->
-            let
-                a =
-                    Debug.log "result" result
-            in
-            case result of
-                Ok state ->
-                    ( { model | curStat = Success, curQuest = state }
-                    , Cmd.none
-                    )
-
-                Err _ ->
-                    ( { model | curStat = Failure }, Cmd.none )
-
-        GotMem result ->
-            let
-                a =
-                    Debug.log "result" result
-            in
-            case result of
-                Ok state ->
-                    ( { model | curMembers = List.append model.curMembers [ state ] }, Cmd.none )
-
-                Err _ ->
-                    ( model, Cmd.none )
-
-        GotMems result ->
-            let
-                a =
-                    Debug.log "result" result
-            in
-            case result of
-                Ok state ->
-                    ( { model | curMembers = [ state ] }, Cmd.none )
-
-                Err _ ->
-                    ( model, Cmd.none )
 
         GotAllMems result ->
             let
@@ -190,18 +137,14 @@ view model =
         , br [] []
         , textInput (Just "password") "Enter API key" model.apiKey UpdateApikey
         , div []
-            [ button [ onClick SubmitAll ] [ text "sUBMIT" ]
+            [ button [ onClick SubmitAll ] [ text "Get party status" ]
             ]
-        , div [] [ text model.username ]
-        , div [] [ text model.apiKey ]
+
+        --        , div [] [ text model.username ]
+        --        , div [] [ text model.apiKey ]
         , br [] []
         , viewResult model
         , br [] []
-        , textInput Nothing "Enter a member ID" model.boxen UpdateBoxen
-        , div []
-            [ button [ onClick (SubmitMem model.boxen) ]
-                [ text "Get one member" ]
-            ]
         ]
 
 
@@ -304,15 +247,6 @@ viewProgress rec =
 
 
 -- HTTP
-
-
-type Error
-    = HttpError Http.Error
-    | DataError DataError
-
-
-type DataError
-    = NoMembers
 
 
 grabMembers : QuestStatus -> List String
