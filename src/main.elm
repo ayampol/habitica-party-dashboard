@@ -90,11 +90,12 @@ type Msg
     | UpdateApikey String
     | UpdateBoxen String
     | SubmitPair
+    | SubmitAll
     | SubmitMem String
-    | SubmitMems
     | GotStat (Result Http.Error QuestStatus)
     | GotMem (Result Http.Error MemberStatus)
     | GotMems (Result Http.Error MemberStatus)
+    | GotAllMems (Result Http.Error ( QuestStatus, List MemberStatus ))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -110,13 +111,13 @@ update msg model =
             ( { model | boxen = boxen }, Cmd.none )
 
         SubmitPair ->
-            ( model, getPartyStatus model.username model.apiKey )
+            ( model, Task.attempt GotStat (getPartyStatus model.username model.apiKey) )
 
         SubmitMem id ->
-            ( model, Cmd.batch [ getPartyStatus model.username model.apiKey, getMemberStatus model model.username model.apiKey id ] )
+            ( model, Task.attempt GotMems (getMemberStatus model.curQuest model.username model.apiKey model.boxen) )
 
-        SubmitMems ->
-            ( model, Task.attempt GotMems (getAllMembers model model.username model.apiKey model.boxen) )
+        SubmitAll ->
+            ( model, Task.attempt GotAllMems (getAllMembers model) )
 
         GotStat result ->
             let
@@ -156,6 +157,18 @@ update msg model =
                 Err _ ->
                     ( model, Cmd.none )
 
+        GotAllMems result ->
+            let
+                a =
+                    Debug.log "result" result
+            in
+            case result of
+                Ok state ->
+                    ( { model | curMembers = Tuple.second state, curQuest = Tuple.first state, curStat = Success }, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
 
 
 -- SUBSCRIPTIONS
@@ -177,7 +190,7 @@ view model =
         , br [] []
         , textInput (Just "password") "Enter API key" model.apiKey UpdateApikey
         , div []
-            [ button [ onClick SubmitPair ] [ text "sUBMIT" ]
+            [ button [ onClick SubmitAll ] [ text "sUBMIT" ]
             ]
         , div [] [ text model.username ]
         , div [] [ text model.apiKey ]
@@ -293,40 +306,61 @@ viewProgress rec =
 -- HTTP
 
 
-getPartyStatus : String -> String -> Cmd Msg
+type Error
+    = HttpError Http.Error
+    | DataError DataError
+
+
+type DataError
+    = NoMembers
+
+
+grabMembers : QuestStatus -> List String
+grabMembers questStat =
+    case questStat of
+        NoQuest ->
+            []
+
+        Quest rec ->
+            Tuple.first <| List.unzip rec.members
+
+
+getAllMembers : Model -> Task Http.Error ( QuestStatus, List MemberStatus )
+getAllMembers model =
+    getPartyStatus model.username model.apiKey
+        |> Task.andThen
+            (\questStatus ->
+                let
+                    questStatusTask =
+                        Task.succeed questStatus
+
+                    allMembersTask =
+                        Task.sequence (List.map (getMemberStatus questStatus model.username model.apiKey) (grabMembers questStatus))
+                in
+                Task.map2 Tuple.pair questStatusTask allMembersTask
+            )
+
+
+getPartyStatus : String -> String -> Task Http.Error QuestStatus
 getPartyStatus username apiKey =
-    Http.request
+    Http.task
         { method = "GET"
         , headers = createAuthHeader username apiKey
         , url = "https://habitica.com/api/v3/groups/party"
         , body = Http.emptyBody
-        , expect = Http.expectJson GotStat statDecoder
+        , resolver = Http.stringResolver <| handleJsonResponse <| statDecoder
         , timeout = Nothing
-        , tracker = Nothing
         }
 
 
-getMemberStatus : Model -> String -> String -> String -> Cmd Msg
-getMemberStatus model username apiKey id =
-    Http.request
-        { method = "GET"
-        , headers = createAuthHeader username apiKey
-        , url = "https://habitica.com/api/v3/members/" ++ id
-        , body = Http.emptyBody
-        , expect = Http.expectJson GotMem (memDecoder (isBossQuest model.curQuest))
-        , timeout = Nothing
-        , tracker = Nothing
-        }
-
-
-getAllMembers : Model -> String -> String -> String -> Task Http.Error MemberStatus
-getAllMembers model username apiKey id =
+getMemberStatus : QuestStatus -> String -> String -> String -> Task Http.Error MemberStatus
+getMemberStatus currentQuest username apiKey id =
     Http.task
         { method = "GET"
         , headers = createAuthHeader username apiKey
         , url = "https://habitica.com/api/v3/members/" ++ id
         , body = Http.emptyBody
-        , resolver = Http.stringResolver <| handleJsonResponse <| memDecoder (isBossQuest model.curQuest)
+        , resolver = Http.stringResolver <| handleJsonResponse <| memDecoder (isBossQuest currentQuest)
         , timeout = Nothing
         }
 
@@ -452,7 +486,7 @@ memBossDecoder =
 memCollectDecoder : Decoder MemberStatus
 memCollectDecoder =
     map2 MemberStatus
-        (at [ "data", "auth", "local", "username" ] string)
+        (at usernamePath string)
         (Decode.map
             MemCollect
             (at [ "data", "party", "quest", "progress", "collectedItems" ] int)
@@ -477,18 +511,3 @@ for(id in party.quest.members) {
                         }
            }
      --}
--- how to decode into union instead of record?
--- check one field then the other?
---progressDecoder : Decoder ProgRecord
---progressDecoder =
---    succeed ProgRecord
---        |> optional "collect" (dict bool) Dict.empty
---        |> optional "hp" float 0.0
-{--
- "progress":{  
-            "collect":{  
-
-            },
-            "hp":100
-         },
---}
