@@ -1,0 +1,42 @@
+body {
+    margin: 3em auto;
+    max-width: 800px;
+    padding: 1em;
+    text-align: center;
+    color: #454545;
+    font-size: 16px;
+    font-family: "Verdana", sans-serif;
+}
+
+button {
+    background-color: #4CAF50; /* Green */
+    border: 1px solid grey;
+    box-sizing: border-box;
+    color: white;
+    margin: 1em;
+    padding: 10px 20px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+}
+
+input {
+    background-color: #0505051c;
+    padding: 10px 10px;
+    border: 1px solid grey;
+    margin: 1em;
+    box-sizing: border-box;
+}
+
+input:focus {
+    border:2px dotted #555;
+}
+
+.failure-text {
+    color: red;
+}
+
+.progress-list {
+    display: inline-block;
+}

@@ -3,7 +3,7 @@ module Main exposing (GetResult(..), Model, Msg(..), createAuthHeader, getPartyS
 import Browser
 import Dict exposing (Dict)
 import Html exposing (..)
-import Html.Attributes exposing (attribute, placeholder, style, type_, value)
+import Html.Attributes exposing (attribute, class, placeholder, style, type_, value)
 import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, float, int, keyValuePairs, list, map2, null, oneOf, string, succeed)
@@ -32,7 +32,6 @@ main =
 type alias Model =
     { username : String
     , apiKey : String
-    , boxen : String
     , curStat : GetResult
     , curQuest : QuestStatus
     , curMembers : List MemberStatus
@@ -66,7 +65,8 @@ type MemberProgress
 type GetResult
     = Failure
     | Success
-    | InProgress
+    | Loading
+    | Init
 
 
 type Progress
@@ -76,7 +76,7 @@ type Progress
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model "" "" "" InProgress NoQuest []
+    ( Model "" "" Init NoQuest []
     , Cmd.none
     )
 
@@ -102,19 +102,20 @@ update msg model =
             ( { model | apiKey = apiKey }, Cmd.none )
 
         SubmitAll ->
-            ( model, Task.attempt GotAllMems (getAllMembers model) )
+            ( { model | curStat = Loading }, Task.attempt GotAllMems (getAllMembers model) )
 
         GotAllMems result ->
-            let
+            {--let
                 a =
                     Debug.log "result" result
             in
+                --}
             case result of
                 Ok state ->
                     ( { model | curMembers = Tuple.second state, curQuest = Tuple.first state, curStat = Success }, Cmd.none )
 
                 Err _ ->
-                    ( model, Cmd.none )
+                    ( { model | curStat = Failure }, Cmd.none )
 
 
 
@@ -132,16 +133,13 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    div [ style "textAlign" "center" ]
-        [ textInput Nothing "Enter username" model.username UpdateUsername
+    div []
+        [ textInput Nothing "Enter user ID" model.username UpdateUsername
         , br [] []
         , textInput (Just "password") "Enter API key" model.apiKey UpdateApikey
         , div []
             [ button [ onClick SubmitAll ] [ text "Get party status" ]
             ]
-
-        --        , div [] [ text model.username ]
-        --        , div [] [ text model.apiKey ]
         , br [] []
         , viewResult model
         , br [] []
@@ -169,25 +167,51 @@ hasInputType whattype =
             type_ "text"
 
 
+checkFailure : Model -> Html Msg
+checkFailure model =
+    let
+        a =
+            if String.isEmpty model.username then
+                "Missing user ID."
+
+            else
+                ""
+
+        b =
+            if String.isEmpty model.apiKey then
+                "Missing API key."
+
+            else
+                ""
+    in
+    text (a ++ " " ++ b)
+
+
 viewResult : Model -> Html Msg
 viewResult model =
     case model.curStat of
         Failure ->
-            div []
-                [ text "API request failed. "
-                , button [] [ text "Yeah, this sucked." ]
+            div [ class "failure-text" ]
+                [ text "API request failed. Either the server is down, or you forgot something."
+                , br [] []
+                , checkFailure model
                 ]
 
         Success ->
             div []
-                [ text "look we succeed "
+                [ text "Here are your quest details: "
                 , br [] []
                 , viewQuest model
                 ]
 
-        InProgress ->
+        Init ->
             div []
-                [ text "Please enter your username and API key."
+                [ text "Please enter your user ID and API key."
+                ]
+
+        Loading ->
+            div []
+                [ text "Fetching results..."
                 ]
 
 
@@ -205,31 +229,80 @@ viewQuest model =
                 , text ("Key is " ++ rec.key)
                 , br [] []
                 , viewProgress rec
-                , ul [] (List.map viewMember model.curMembers)
+                , div []
+                    [ ul [ class "progress-list" ] (List.map viewMember model.curMembers)
+                    ]
+                , viewTotal model.curQuest <| computeTotalProgress model.curMembers
                 ]
+
+
+round2Float : Float -> Float
+round2Float flot =
+    toFloat (round (flot * 100)) / 100
 
 
 viewMember : MemberStatus -> Html Msg
 viewMember mem =
     case mem.memProgress of
         Asleep ->
-            div []
+            li []
                 [ text (mem.username ++ " is taking a nap.")
                 ]
 
         MemBoss progress ->
-            div []
-                [ text ("Username: " ++ mem.username)
-                , br [] []
-                , text ("Up: " ++ String.fromFloat progress)
+            li []
+                [ --text ("Username: " ++ mem.username)
+                  --, br [] []
+                  --, text ("Up: " ++ String.fromFloat (round2Float progress))
+                  text (mem.username ++ " will do " ++ String.fromFloat (round2Float progress) ++ " damage to the boss.")
                 ]
 
         MemCollect progress ->
-            div []
-                [ text ("Username: " ++ mem.username)
-                , br [] []
-                , text ("Items Collected: " ++ String.fromInt progress)
+            li []
+                [ --text ("Username: " ++ mem.username)
+                  --, br [] []
+                  --, text ("Items Collected: " ++ String.fromInt progress)
+                  text (mem.username ++ " has collected " ++ String.fromInt progress ++ " items. ")
                 ]
+
+
+computeTotalProgress : List MemberStatus -> Float
+computeTotalProgress memList =
+    List.sum
+        (List.map
+            (\mem ->
+                case mem.memProgress of
+                    MemBoss prog ->
+                        round2Float prog
+
+                    MemCollect prog ->
+                        round2Float <| toFloat prog
+
+                    Asleep ->
+                        0
+            )
+            memList
+        )
+
+
+viewTotal : QuestStatus -> Float -> Html Msg
+viewTotal questStat tot =
+    let
+        totalText =
+            case questStat of
+                NoQuest ->
+                    ""
+
+                Quest rec ->
+                    case rec.progress of
+                        Collect _ ->
+                            "Total items collected is" ++ String.fromFloat tot
+
+                        Boss _ ->
+                            "Total damage pending is " ++ String.fromFloat tot
+    in
+    div [ class "progress-total" ]
+        [ text totalText ]
 
 
 viewProgress : QuestRecord -> Html Msg
@@ -242,7 +315,7 @@ viewProgress rec =
                 ]
 
         Boss hp ->
-            text ("Bossfight. Boss HP : " ++ String.fromFloat hp)
+            text ("Bossfight. Boss HP : " ++ String.fromFloat (round2Float hp))
 
 
 
@@ -430,18 +503,3 @@ memCollectDecoder =
 createAuthHeader : String -> String -> List Http.Header
 createAuthHeader username apikey =
     [ Http.header "x-api-user" username, Http.header "x-api-key" apikey ]
-
-
-
-{--
-for(id in party.quest.members) {
-          var member = Utils.fetch("https://habitica.com/api/v3/members/" + id, "get");
-            if(party.quest.members[id]) {
-                        var memberProgress = isBossQuest ? member.party.quest.progress.up : member.party.quest.progress.collectedItems;
-                        totalProgress += memberProgress;
-                                
-           if(member.preferences.sleep)
-                        sleepProgress += memberProgress;
-                        }
-           }
-     --}
