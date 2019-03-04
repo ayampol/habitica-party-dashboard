@@ -4,16 +4,16 @@ body {
     padding: 1em;
     text-align: center;
     background-color: #202020;
-    color: #707070;
+    color: #b0b0b0;
     font-size: 16px;
     font-family: "Verdana", sans-serif;
 }
 
 button {
     background-color: #4CAF50; /* Green */
-    border: 1px solid grey;
+    border: 1px solid #707070;
     box-sizing: border-box;
-    color: white;
+    color: #f9f2f2;
     margin: 1em;
     padding: 10px 20px;
     text-align: center;
@@ -25,13 +25,23 @@ button {
 input {
     background-color: #0505051c;
     padding: 10px 10px;
+    color: #b0b0b0;
     border: 1px solid grey;
     margin: 1em;
     box-sizing: border-box;
 }
 
 input:focus {
-    border:2px dotted #555;
+    border:2px solid #909090;
+}
+
+.master-success {
+    display: flex;
+    flex-direction: row-reverse;
+}
+
+.chat-master {
+    flex: 75%;
 }
 
 .failure-text {
@@ -41,3 +51,27 @@ input:focus {
 .progress-list {
     display: inline-block;
 }
+
+.success-results {
+    flex: 25%;
+}
+
+
+.accordion {
+    cursor: pointer;
+    border: none;
+    outline: none;
+    transition: 0.4s;
+}
+
+.panel {
+    padding: 0 18px;
+    display: none;
+    overflow: hidden;
+}
+
+.panel-show {
+    display: default;
+    flex: 25%;
+}
+

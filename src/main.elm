@@ -3,7 +3,7 @@ module Main exposing (GetResult(..), Model, Msg(..), createAuthHeader, getPartyS
 import Browser
 import Dict exposing (Dict)
 import Html exposing (..)
-import Html.Attributes exposing (attribute, class, placeholder, type_, value)
+import Html.Attributes exposing (attribute, class, placeholder, spellcheck, type_, value)
 import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, float, int, keyValuePairs, list, map2, null, oneOf, string, succeed)
@@ -64,9 +64,13 @@ type MemberProgress
     | Asleep
 
 
+type alias ShowQuestStatus =
+    Bool
+
+
 type GetResult
     = Failure
-    | Success
+    | Success ShowQuestStatus
     | Loading
     | Init
 
@@ -91,6 +95,7 @@ type Msg
     = UpdateUsername String
     | UpdateApikey String
     | SubmitAll
+    | ToggleQuest
     | GotAllMems (Result Http.Error ( QuestStatus, List MemberStatus ))
 
 
@@ -106,6 +111,21 @@ update msg model =
         SubmitAll ->
             ( { model | curStat = Loading }, Task.attempt GotAllMems (getAllMembers model) )
 
+        ToggleQuest ->
+            ( { model
+                | curStat =
+                    Success
+                        (case model.curStat of
+                            Success show ->
+                                not show
+
+                            _ ->
+                                False
+                        )
+              }
+            , Cmd.none
+            )
+
         GotAllMems result ->
             {--let
                 a =
@@ -114,7 +134,7 @@ update msg model =
                 --}
             case result of
                 Ok state ->
-                    ( { model | curMembers = Tuple.second state, curQuest = Tuple.first state, curStat = Success }, Cmd.none )
+                    ( { model | curMembers = Tuple.second state, curQuest = Tuple.first state, curStat = Success True }, Cmd.none )
 
                 Err _ ->
                     ( { model | curStat = Failure }, Cmd.none )
@@ -135,16 +155,52 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    div []
+    div [ swapLayout model ]
+        [ viewResult model
+        , br [] []
+        , case model.curStat of
+            Success showQuest ->
+                viewChat model
+
+            _ ->
+                viewLoginForm model
+        ]
+
+
+swapLayout : Model -> Attribute Msg
+swapLayout model =
+    case model.curStat of
+        Success showQuest ->
+            class "master-success"
+
+        _ ->
+            class "master"
+
+
+viewChat : Model -> Html Msg
+viewChat model =
+    div [ class "chat-master" ]
+        [ div [ class "chat-converse" ]
+            [ p [] []
+            ]
+        , input
+            [ class "chat-input"
+            , spellcheck True
+            , placeholder "Say something."
+            ]
+            []
+        ]
+
+
+viewLoginForm : Model -> Html Msg
+viewLoginForm model =
+    div [ spellcheck False ]
         [ textInput Nothing "Enter user ID" model.username UpdateUsername
         , br [] []
         , textInput (Just "password") "Enter API key" model.apiKey UpdateApikey
         , div []
-            [ button [ onClick SubmitAll ] [ text "Get party status" ]
+            [ button [ onClick SubmitAll ] [ text " Log in " ]
             ]
-        , br [] []
-        , viewResult model
-        , br [] []
         ]
 
 
@@ -189,6 +245,19 @@ checkFailure model =
     text (a ++ " " ++ b)
 
 
+checkShowQuest : Model -> Attribute Msg
+checkShowQuest model =
+    case model.curStat of
+        Success True ->
+            class "panel-show"
+
+        Success False ->
+            class "panel"
+
+        _ ->
+            class "panel"
+
+
 viewResult : Model -> Html Msg
 viewResult model =
     case model.curStat of
@@ -199,15 +268,23 @@ viewResult model =
                 , checkFailure model
                 ]
 
-        Success ->
-            div []
-                [ text "Here are your quest details: "
-                , br [] []
-                , viewQuest model
+        Success showQuest ->
+            div [ class "success-text" ]
+                [ button
+                    [ class "accordion"
+                    , onClick ToggleQuest
+                    ]
+                    [ text "Show quest status" ]
+                , div
+                    [ checkShowQuest model ]
+                    [ text "Here are your quest details: "
+                    , br [] []
+                    , viewQuest model
+                    ]
                 ]
 
         Init ->
-            div []
+            div [ class "init-text" ]
                 [ text "Please enter your user ID and API key."
                 ]
 
