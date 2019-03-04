@@ -3,12 +3,14 @@ module Main exposing (GetResult(..), Model, Msg(..), createAuthHeader, getPartyS
 import Browser
 import Dict exposing (Dict)
 import Html exposing (..)
-import Html.Attributes exposing (attribute, class, placeholder, style, type_, value)
+import Html.Attributes exposing (attribute, class, placeholder, type_, value)
 import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, float, int, keyValuePairs, list, map2, null, oneOf, string, succeed)
 import Json.Decode.Pipeline exposing (hardcoded, optional, optionalAt, required, requiredAt)
 import List exposing (append)
+import Svg exposing (animate, circle, svg)
+import Svg.Attributes exposing (attributeName, begin, calcMode, cx, cy, dur, fill, fillOpacity, height, r, repeatCount, stroke, strokeOpacity, strokeWidth, style, values, width)
 import Task exposing (Task, attempt)
 
 
@@ -192,7 +194,7 @@ viewResult model =
     case model.curStat of
         Failure ->
             div [ class "failure-text" ]
-                [ text "API request failed. Either the server is down, or you forgot something."
+                [ text "API request failed. There may be server issues or a field is wrong or missing."
                 , br [] []
                 , checkFailure model
                 ]
@@ -210,8 +212,10 @@ viewResult model =
                 ]
 
         Loading ->
-            div []
-                [ text "Fetching results..."
+            div [ class "loading-results" ]
+                [ loadSpinner
+                , br [] []
+                , text "Fetching results..."
                 ]
 
 
@@ -268,21 +272,22 @@ viewMember mem =
 
 computeTotalProgress : List MemberStatus -> Float
 computeTotalProgress memList =
-    List.sum
-        (List.map
-            (\mem ->
-                case mem.memProgress of
-                    MemBoss prog ->
-                        round2Float prog
+    round2Float <|
+        List.sum
+            (List.map
+                (\mem ->
+                    case mem.memProgress of
+                        MemBoss prog ->
+                            round2Float prog
 
-                    MemCollect prog ->
-                        round2Float <| toFloat prog
+                        MemCollect prog ->
+                            round2Float <| toFloat prog
 
-                    Asleep ->
-                        0
+                        Asleep ->
+                            0
+                )
+                memList
             )
-            memList
-        )
 
 
 viewTotal : QuestStatus -> Float -> Html Msg
@@ -316,6 +321,58 @@ viewProgress rec =
 
         Boss hp ->
             text ("Bossfight. Boss HP : " ++ String.fromFloat (round2Float hp))
+
+
+loadSpinner : Html Msg
+loadSpinner =
+    svg
+        [ width "100", height "100" ]
+        [ circle
+            [ cx "50"
+            , cy "50"
+            , r "13.917525"
+            , fill "#999999"
+            , stroke "#909090"
+            , strokeWidth "15"
+            ]
+            [ animate
+                [ attributeName "r"
+                , begin "0s"
+                , dur "3s"
+                , values "12;20;30;20;12;9"
+                , calcMode "linear"
+                , repeatCount "indefinite"
+                ]
+                []
+            , animate
+                [ attributeName "fill-opacity"
+                , begin "0s"
+                , dur "3s"
+                , values "1;0.75;0.5;0.75;0.5;1"
+                , calcMode "linear"
+                , repeatCount "indefinite"
+                ]
+                []
+            , animate
+                [ attributeName "stroke-opacity"
+                , begin "0s"
+                , dur "3s"
+                , values "1;0;0;0;1;1;1"
+                , calcMode "linear"
+                , repeatCount "indefinite"
+                ]
+                []
+            , animate
+                [ attributeName "stroke-width"
+                , begin "0s"
+                , dur "3s"
+                , values "12;0;0;0;12;13"
+                , calcMode "linear"
+                , repeatCount "indefinite"
+                ]
+                []
+            ]
+        ]
 
 
 
