@@ -52,22 +52,24 @@ input:focus {
     display: inline-block;
 }
 
-.success-results {
-    flex: 25%;
-}
-
 
 .accordion {
     cursor: pointer;
     border: none;
+    right: 0;
+    top: 0;
     outline: none;
-    transition: 0.4s;
+    padding: 10px 15px;
 }
 
 .panel {
     padding: 0 18px;
+    height: 500px;
+    top: 0;
+    right: 0;
     display: none;
     overflow: hidden;
+    transition: 0.5s;
 }
 
 .panel-show {
