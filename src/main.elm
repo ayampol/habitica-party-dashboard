@@ -3,7 +3,7 @@ module Main exposing (GetResult(..), Model, Msg(..), createAuthHeader, getPartyS
 import Browser
 import Dict exposing (Dict)
 import Html exposing (..)
-import Html.Attributes exposing (attribute, class, placeholder, spellcheck, type_, value)
+import Html.Attributes exposing (attribute, class, placeholder, spellcheck, src, type_, value)
 import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, float, int, keyValuePairs, list, map2, null, oneOf, string, succeed)
@@ -37,6 +37,7 @@ type alias Model =
     , curStat : GetResult
     , curQuest : QuestStatus
     , curMembers : List MemberStatus
+    , allQuestDetails : Dict String String
     }
 
 
@@ -82,7 +83,7 @@ type Progress
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model "" "" Init NoQuest []
+    ( Model "" "" Init NoQuest [] Dict.empty
     , Cmd.none
     )
 
@@ -96,6 +97,7 @@ type Msg
     | UpdateApikey String
     | SubmitAll
     | ToggleQuest
+    | GotQuestDetails (Result Http.Error (Dict String String))
     | GotAllMems (Result Http.Error ( QuestStatus, List MemberStatus ))
 
 
@@ -109,7 +111,7 @@ update msg model =
             ( { model | apiKey = apiKey }, Cmd.none )
 
         SubmitAll ->
-            ( { model | curStat = Loading }, Task.attempt GotAllMems (getAllMembers model) )
+            ( { model | curStat = Loading }, Cmd.batch [ Task.attempt GotAllMems (getAllMembers model), getQuestDetails ] )
 
         ToggleQuest ->
             ( { model
@@ -126,6 +128,18 @@ update msg model =
             , Cmd.none
             )
 
+        GotQuestDetails result ->
+            case result of
+                Ok state ->
+                    let
+                        lowercasedkeys =
+                            Dict.foldr smallKeys Dict.empty state
+                    in
+                    ( { model | allQuestDetails = lowercasedkeys }, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
         GotAllMems result ->
             {--let
                 a =
@@ -138,6 +152,11 @@ update msg model =
 
                 Err _ ->
                     ( { model | curStat = Failure }, Cmd.none )
+
+
+smallKeys : String -> String -> Dict String String -> Dict String String
+smallKeys key value newDict =
+    Dict.insert (String.toLower key) value newDict
 
 
 
@@ -270,15 +289,9 @@ viewResult model =
 
         Success showQuest ->
             div [ class "success-text" ]
-                [ button
-                    [ class "accordion"
-                    , onClick ToggleQuest
-                    ]
-                    [ text "Show quest status" ]
-                , div
+                [ div
                     [ checkShowQuest model ]
-                    [ text "Here are your quest details: "
-                    , br [] []
+                    [ br [] []
                     , viewQuest model
                     ]
                 ]
@@ -305,9 +318,9 @@ viewQuest model =
 
         Quest rec ->
             div []
-                [ text "Quest is active."
-                , br [] []
-                , text ("Key is " ++ rec.key)
+                [ keyToQuestHeader model.allQuestDetails rec.key
+                , div [ class "quest-image" ]
+                    [ img [ src (getImagePath rec.key) ] [] ]
                 , br [] []
                 , viewProgress rec
                 , div []
@@ -315,6 +328,41 @@ viewQuest model =
                     ]
                 , viewTotal model.curQuest <| computeTotalProgress model.curMembers
                 ]
+
+
+keyToQuestHeader : Dict String String -> String -> Html Msg
+keyToQuestHeader allQuestDetails key =
+    let
+        questText =
+            Dict.get ("quest" ++ key ++ "text") allQuestDetails
+
+        questNotes =
+            Dict.get ("quest" ++ key ++ "notes") allQuestDetails
+    in
+    div [ class "quest-details " ]
+        [ p [ class "quest-title" ] [ text (maybeDetailToString questText "Quest title ") ]
+        , br [] []
+        , p [ class "quest-notes" ] [ text (maybeDetailToString questNotes "Notes ") ]
+        ]
+
+
+maybeDetailToString : Maybe String -> String -> String
+maybeDetailToString dictResult name =
+    case dictResult of
+        Just result ->
+            result
+
+        Nothing ->
+            name ++ " not found. "
+
+
+
+-- This is suboptimal. But this will always get us the most up-to-date images.
+
+
+getImagePath : String -> String
+getImagePath key =
+    "https://raw.githubusercontent.com/HabitRPG/habitica/develop/website/raw_sprites/spritesmith/quests/bosses/quest_" ++ key ++ ".png"
 
 
 round2Float : Float -> Float
@@ -503,6 +551,14 @@ getMemberStatus currentQuest username apiKey id =
         , body = Http.emptyBody
         , resolver = Http.stringResolver <| handleJsonResponse <| memDecoder (isBossQuest currentQuest)
         , timeout = Nothing
+        }
+
+
+getQuestDetails : Cmd Msg
+getQuestDetails =
+    Http.get
+        { url = "https://raw.githubusercontent.com/HabitRPG/habitica/develop/website/common/locales/en/questsContent.json"
+        , expect = Http.expectJson GotQuestDetails (dict string)
         }
 
 

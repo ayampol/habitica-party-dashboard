@@ -1,12 +1,14 @@
+html,body,.master-success {
+    height: 100%;
+    padding: 0;
+    margin: 0;
+}
+
 body {
-    margin: 3em auto;
-    max-width: 800px;
-    padding: 1em;
     text-align: center;
     background-color: #202020;
     color: #b0b0b0;
-    font-size: 16px;
-    font-family: "Verdana", sans-serif;
+    font-family: "Verdana", "Optima", sans-serif;
 }
 
 button {
@@ -35,13 +37,28 @@ input:focus {
     border:2px solid #909090;
 }
 
+.master {
+    padding: 1em;
+    margin: 3em auto;
+}
+
 .master-success {
+    max-width: none;
     display: flex;
+    box-sizing: border-box;
     flex-direction: row-reverse;
 }
 
+.success-text {
+    background-color: rgba(0,0,0,0.3);
+    padding: 1em;
+    overflow-y: auto;
+    flex: 2;
+}
+
 .chat-master {
-    flex: 75%;
+    display: flex;
+    flex: 3;
 }
 
 .failure-text {
@@ -53,27 +70,39 @@ input:focus {
 }
 
 
+.chat-input {
+    width:  98%;
+    height: 25px;
+    padding: 2%
+    flex-shrink: 0;
+}
+
 .accordion {
     cursor: pointer;
     border: none;
-    right: 0;
-    top: 0;
     outline: none;
     padding: 10px 15px;
-}
-
-.panel {
-    padding: 0 18px;
-    height: 500px;
-    top: 0;
-    right: 0;
-    display: none;
-    overflow: hidden;
-    transition: 0.5s;
+    background: none;
 }
 
 .panel-show {
-    display: default;
-    flex: 25%;
+    display: block;
+    flex: 2;
+}
+
+.quest-image {
+    margin: 0 auto;
+}
+
+.quest-notes {
+    font-size: 0.8em;
+    margin: 0;
+    padding: 0;
+}
+
+.quest-title {
+    font-weight: bold;
+    margin: 0;
+    padding: 0;
 }
 
