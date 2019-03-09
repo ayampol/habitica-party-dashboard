@@ -214,11 +214,13 @@ viewChat model =
 viewLoginForm : Model -> Html Msg
 viewLoginForm model =
     div [ spellcheck False ]
-        [ textInput Nothing "Enter user ID" model.username UpdateUsername
-        , br [] []
-        , textInput (Just "password") "Enter API key" model.apiKey UpdateApikey
-        , div []
-            [ button [ onClick SubmitAll ] [ text " Log in " ]
+        [ form [ onSubmit SubmitAll ]
+            [ textInput Nothing "Enter user ID" model.username UpdateUsername
+            , br [] []
+            , textInput (Just "password") "Enter API key" model.apiKey UpdateApikey
+            , div []
+                [ button [ type_ "submit" ] [ text " Log in " ]
+                ]
             ]
         ]
 
