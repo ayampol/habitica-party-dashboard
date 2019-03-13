@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (attribute, class, placeholder, spellcheck, src, type_, value)
 import Html.Events exposing (..)
 import Http
-import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, float, int, keyValuePairs, list, map2, null, oneOf, string, succeed)
+import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, float, int, keyValuePairs, list, map, map2, null, oneOf, string, succeed)
 import Json.Decode.Pipeline exposing (hardcoded, optional, optionalAt, required, requiredAt)
 import List exposing (append)
 import Svg exposing (animate, circle, svg)
@@ -78,7 +78,7 @@ type GetResult
 
 type Progress
     = Collect (List ( String, Int ))
-    | Boss Float
+    | Boss Float (Maybe Float)
 
 
 init : () -> ( Model, Cmd Msg )
@@ -141,11 +141,10 @@ update msg model =
                     ( model, Cmd.none )
 
         GotAllMems result ->
-            {--let
+            let
                 a =
                     Debug.log "result" result
             in
-                --}
             case result of
                 Ok state ->
                     ( { model | curMembers = Tuple.second state, curQuest = Tuple.first state, curStat = Success True }, Cmd.none )
@@ -325,10 +324,10 @@ viewQuest model =
                     [ img [ src (getImagePath rec.key) ] [] ]
                 , br [] []
                 , viewProgress rec
-                , div []
-                    [ ul [ class "progress-list" ] (List.map viewMember model.curMembers)
+                , div [ class "quest-membersprog" ]
+                    [ viewMembersTable model.curQuest
+                        model.curMembers
                     ]
-                , viewTotal model.curQuest <| computeTotalProgress model.curMembers
                 ]
 
 
@@ -336,16 +335,21 @@ keyToQuestHeader : Dict String String -> String -> Html Msg
 keyToQuestHeader allQuestDetails key =
     let
         questText =
-            Dict.get ("quest" ++ key ++ "text") allQuestDetails
+            getWhatQuestDetail key "text" allQuestDetails
 
         questNotes =
-            Dict.get ("quest" ++ key ++ "notes") allQuestDetails
+            getWhatQuestDetail key "notes" allQuestDetails
     in
-    div [ class "quest-details " ]
+    div [ class "quest-details" ]
         [ p [ class "quest-title" ] [ text (maybeDetailToString questText "Quest title ") ]
         , br [] []
         , p [ class "quest-notes" ] [ text (maybeDetailToString questNotes "Notes ") ]
         ]
+
+
+getWhatQuestDetail : String -> String -> Dict String String -> Maybe String
+getWhatQuestDetail title detail allDetails =
+    Dict.get ("quest" ++ String.toLower title ++ detail) allDetails
 
 
 maybeDetailToString : Maybe String -> String -> String
@@ -372,20 +376,51 @@ round2Float flot =
     toFloat (round (flot * 100)) / 100
 
 
+viewMembersTable : QuestStatus -> List MemberStatus -> Html Msg
+viewMembersTable quest members =
+    let
+        kind =
+            case quest of
+                NoQuest ->
+                    "N/A"
+
+                Quest questtype ->
+                    case questtype.progress of
+                        Boss _ _ ->
+                            "Damage"
+
+                        Collect _ ->
+                            "Items"
+    in
+    table [ class "quest-memberstable" ]
+        ([ thead [ class "members-tableheader" ]
+            [ td [] [ text "Username" ]
+            , td [] [ text kind ]
+            ]
+         ]
+            ++ [ tbody []
+                    (List.map viewMember members)
+               ]
+            ++ [ viewTotal quest <| computeTotalProgress members
+               ]
+        )
+
+
 viewMember : MemberStatus -> Html Msg
 viewMember mem =
     case mem.memProgress of
         Asleep ->
-            li []
-                [ text (mem.username ++ " is taking a nap.")
+            tr []
+                [ td []
+                    [ text (mem.username ++ " is taking a nap.") ]
+                , td [] []
                 ]
 
         MemBoss progress ->
-            li []
-                [ --text ("Username: " ++ mem.username)
-                  --, br [] []
-                  --, text ("Up: " ++ String.fromFloat (round2Float progress))
-                  text (mem.username ++ " will do " ++ String.fromFloat (round2Float progress) ++ " damage to the boss.")
+            tr
+                []
+                [ td [] [ text mem.username ]
+                , td [] [ text <| String.fromFloat (round2Float progress) ]
                 ]
 
         MemCollect progress ->
@@ -428,13 +463,17 @@ viewTotal questStat tot =
                 Quest rec ->
                     case rec.progress of
                         Collect _ ->
-                            "Total items collected is" ++ String.fromFloat tot
+                            "Total items collected "
 
-                        Boss _ ->
-                            "Total damage pending is " ++ String.fromFloat tot
+                        Boss _ _ ->
+                            "Total damage pending "
     in
-    div [ class "progress-total" ]
-        [ text totalText ]
+    tfoot [ class "progress-total" ]
+        [ tr []
+            [ td [] [ text totalText ]
+            , td [] [ text <| String.fromFloat tot ]
+            ]
+        ]
 
 
 viewProgress : QuestRecord -> Html Msg
@@ -443,11 +482,28 @@ viewProgress rec =
         Collect items ->
             div []
                 [ text "Collection quest in progress."
-                , ul [] (List.map (\i -> li [] [ text (Tuple.first i ++ " " ++ String.fromInt (Tuple.second i)) ]) items)
+                , ul [ class "collect__memprogress" ] (List.map (\i -> li [] [ text (Tuple.first i ++ " " ++ String.fromInt (Tuple.second i)) ]) items)
                 ]
 
-        Boss hp ->
-            text ("Bossfight. Boss HP : " ++ String.fromFloat (round2Float hp))
+        Boss hp rage ->
+            let
+                healthText =
+                    [ text ("Boss has " ++ String.fromFloat (round2Float hp) ++ " health left!") ]
+            in
+            div [ class "quest-summary" ]
+                (healthText ++ deMaybeRage rage)
+
+
+deMaybeRage : Maybe Float -> List (Html Msg)
+deMaybeRage rage =
+    case rage of
+        Just flot ->
+            [ br [] []
+            , text ("Rage: " ++ String.fromFloat (round2Float flot))
+            ]
+
+        Nothing ->
+            [ text "" ]
 
 
 loadSpinner : Html Msg
@@ -620,6 +676,7 @@ checkCollect col =
     if List.isEmpty col then
         succeed Boss
             |> required "hp" float
+            |> optional "rage" (Decode.map Just float) Nothing
 
     else
         succeed Collect
@@ -634,7 +691,7 @@ isBossQuest stat =
 
         Quest rec ->
             case rec.progress of
-                Boss _ ->
+                Boss _ _ ->
                     True
 
                 Collect _ ->

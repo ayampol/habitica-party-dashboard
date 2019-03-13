@@ -11,6 +11,8 @@ body {
     font-family: "Verdana", "Optima", sans-serif;
 }
 
+
+
 button {
     background-color: #4CAF50; /* Green */
     border: 1px solid #707070;
@@ -35,6 +37,14 @@ input {
 
 input:focus {
     border:2px solid #909090;
+}
+
+tfoot {
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    font-weight: bold;
+    text-underline-position: under;
+    text-decoration-color: goldenrod;
 }
 
 .master {
@@ -65,8 +75,10 @@ input:focus {
     color: red;
 }
 
-.progress-list {
+.llist {
     display: inline-block;
+    list-style-image: url('purple_sword.png');
+    list-style-type: square;
 }
 
 
@@ -105,4 +117,15 @@ input:focus {
     margin: 0;
     padding: 0;
 }
+
+.quest-memberstable {
+    table-layout: fixed;
+    width: 75%;
+    margin-left: auto;
+    margin-right: auto;
+    border : 1px solid black;
+    text-align: center;
+}
+
+
 
