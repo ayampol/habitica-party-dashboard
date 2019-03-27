@@ -47,6 +47,15 @@ tfoot {
     text-decoration-color: goldenrod;
 }
 
+td, th {
+    padding: 0.25em 0.1em;
+}
+
+tr:nth-child(even) {
+    background-color: #f2f2f2;
+}
+
+
 .master {
     padding: 1em;
     margin: 3em auto;
@@ -66,10 +75,7 @@ tfoot {
     flex: 2;
 }
 
-.chat-master {
-    display: flex;
-    flex: 3;
-}
+
 
 .failure-text {
     color: red;
@@ -81,13 +87,6 @@ tfoot {
     list-style-type: square;
 }
 
-
-.chat-input {
-    width:  98%;
-    height: 25px;
-    padding: 2%
-    flex-shrink: 0;
-}
 
 .accordion {
     cursor: pointer;
@@ -123,9 +122,38 @@ tfoot {
     width: 75%;
     margin-left: auto;
     margin-right: auto;
-    border : 1px solid black;
     text-align: center;
 }
 
+.members-tableheader {
+    padding: 0.25em 0.0em;
+}
+
+.chat-interact {
+    display: flex;
+    flex: 1;
+    padding: 0em;
+    margin: 1em 1em 1em 1.5em;
+}
+
+.chat-submit {
+    border: 1px solid grey;
+    margin: 0em;
+    height: 25px;
+    padding: 0em;
+}
+
+.chat-master {
+    display: flex;
+    flex: 2;
+}
+
+.chat-input {
+    width:  100%;
+    height: 25px;
+    margin: 0em;
+    padding: 0em;
+    flex: 1;
+}
 
 

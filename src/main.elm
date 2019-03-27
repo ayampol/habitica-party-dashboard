@@ -71,9 +71,13 @@ type alias ShowQuestStatus =
 
 type GetResult
     = Failure
-    | Success ShowQuestStatus
+    | Success ShowQuestStatus Chatlog
     | Loading
     | Init
+
+
+type alias Chatlog =
+    List String
 
 
 type Progress
@@ -96,7 +100,6 @@ type Msg
     = UpdateUsername String
     | UpdateApikey String
     | SubmitAll
-    | ToggleQuest
     | GotQuestDetails (Result Http.Error (Dict String String))
     | GotAllMems (Result Http.Error ( QuestStatus, List MemberStatus ))
 
@@ -113,21 +116,6 @@ update msg model =
         SubmitAll ->
             ( { model | curStat = Loading }, Cmd.batch [ Task.attempt GotAllMems (getAllMembers model), getQuestDetails ] )
 
-        ToggleQuest ->
-            ( { model
-                | curStat =
-                    Success
-                        (case model.curStat of
-                            Success show ->
-                                not show
-
-                            _ ->
-                                False
-                        )
-              }
-            , Cmd.none
-            )
-
         GotQuestDetails result ->
             case result of
                 Ok state ->
@@ -141,13 +129,14 @@ update msg model =
                     ( model, Cmd.none )
 
         GotAllMems result ->
-            let
+            {--let
                 a =
                     Debug.log "result" result
             in
+                --}
             case result of
                 Ok state ->
-                    ( { model | curMembers = Tuple.second state, curQuest = Tuple.first state, curStat = Success True }, Cmd.none )
+                    ( { model | curMembers = Tuple.second state, curQuest = Tuple.first state, curStat = Success True [ "" ] }, Cmd.none )
 
                 Err _ ->
                     ( { model | curStat = Failure }, Cmd.none )
@@ -177,7 +166,7 @@ view model =
         [ viewResult model
         , br [] []
         , case model.curStat of
-            Success showQuest ->
+            Success showQuest _ ->
                 viewChat model
 
             _ ->
@@ -188,7 +177,7 @@ view model =
 swapLayout : Model -> Attribute Msg
 swapLayout model =
     case model.curStat of
-        Success showQuest ->
+        Success showQuest _ ->
             class "master-success"
 
         _ ->
@@ -201,12 +190,18 @@ viewChat model =
         [ div [ class "chat-converse" ]
             [ p [] []
             ]
-        , input
-            [ class "chat-input"
-            , spellcheck True
-            , placeholder "Say something."
+        , div
+            [ class "chat-interact" ]
+            [ input
+                [ class "chat-input"
+                , spellcheck True
+                , placeholder "Say something."
+                ]
+                []
+            , button
+                [ class "chat-submit" ]
+                [ text " -> " ]
             ]
-            []
         ]
 
 
@@ -268,11 +263,8 @@ checkFailure model =
 checkShowQuest : Model -> Attribute Msg
 checkShowQuest model =
     case model.curStat of
-        Success True ->
+        Success True _ ->
             class "panel-show"
-
-        Success False ->
-            class "panel"
 
         _ ->
             class "panel"
@@ -288,7 +280,7 @@ viewResult model =
                 , checkFailure model
                 ]
 
-        Success showQuest ->
+        Success showQuest _ ->
             div [ class "success-text" ]
                 [ div
                     [ checkShowQuest model ]
@@ -394,8 +386,8 @@ viewMembersTable quest members =
     in
     table [ class "quest-memberstable" ]
         ([ thead [ class "members-tableheader" ]
-            [ td [] [ text "Username" ]
-            , td [] [ text kind ]
+            [ th [] [ text "Username" ]
+            , th [] [ text kind ]
             ]
          ]
             ++ [ tbody []
@@ -424,11 +416,10 @@ viewMember mem =
                 ]
 
         MemCollect progress ->
-            li []
-                [ --text ("Username: " ++ mem.username)
-                  --, br [] []
-                  --, text ("Items Collected: " ++ String.fromInt progress)
-                  text (mem.username ++ " has collected " ++ String.fromInt progress ++ " items. ")
+            tr
+                []
+                [ td [] [ text mem.username ]
+                , td [] [ text <| String.fromInt progress ]
                 ]
 
 
