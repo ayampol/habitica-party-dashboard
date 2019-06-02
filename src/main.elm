@@ -1,14 +1,18 @@
 module Main exposing (GetResult(..), Model, Msg(..), createAuthHeader, getPartyStatus, init, main, statDecoder, subscriptions, update, view, viewResult)
 
 import Browser
+import Cmd.Extra exposing (withCmd, withNoCmd)
 import Dict exposing (Dict)
 import Html exposing (..)
-import Html.Attributes exposing (attribute, class, placeholder, spellcheck, src, type_, value)
+import Html.Attributes exposing (attribute, class, disabled, placeholder, spellcheck, src, type_, value)
 import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, float, int, keyValuePairs, list, map, map2, null, oneOf, string, succeed)
 import Json.Decode.Pipeline exposing (hardcoded, optional, optionalAt, required, requiredAt)
+import Json.Encode as JE exposing (Value)
 import List exposing (append)
+import PortFunnel.WebSocket as WebSocket exposing (Response(..))
+import PortFunnels exposing (FunnelDict, Handler(..), State)
 import Svg exposing (animate, circle, svg)
 import Svg.Attributes exposing (attributeName, begin, calcMode, cx, cy, dur, fill, fillOpacity, height, r, repeatCount, stroke, strokeOpacity, strokeWidth, style, values, width)
 import Task exposing (Task, attempt)
@@ -38,7 +42,18 @@ type alias Model =
     , curQuest : QuestStatus
     , curMembers : List MemberStatus
     , allQuestDetails : Dict String String
+    , socketState : State
+    , socketSend : String
+    , socketKey : String
+    , socketError : Maybe String
+    , socketLog : List String
+    , socketWasLoaded : Bool
     }
+
+
+defaultUrl : String
+defaultUrl =
+    "wss://echo.websocket.org"
 
 
 type QuestStatus
@@ -87,7 +102,7 @@ type Progress
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model "" "" Init NoQuest [] Dict.empty
+    ( Model "" "" Init NoQuest [] Dict.empty PortFunnels.initialState "Initial Message" "socket" Nothing [] False
     , Cmd.none
     )
 
@@ -102,16 +117,49 @@ type Msg
     | SubmitAll
     | GotQuestDetails (Result Http.Error (Dict String String))
     | GotAllMems (Result Http.Error ( QuestStatus, List MemberStatus ))
+      -- WebSocket Msgs
+    | Connect
+    | Close
+    | Send
+    | UpdateSend String
+    | Process Value
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         UpdateUsername username ->
-            ( { model | username = username }, Cmd.none )
+            { model | username = username } |> withNoCmd
 
         UpdateApikey apiKey ->
-            ( { model | apiKey = apiKey }, Cmd.none )
+            { model | apiKey = apiKey } |> withNoCmd
+
+        UpdateSend newSend ->
+            { model | socketSend = newSend } |> withNoCmd
+
+        Connect ->
+            { model
+                | socketLog =
+                    ("Connecting to " ++ defaultUrl) :: model.socketLog
+            }
+                |> withCmd (WebSocket.makeOpenWithKey model.socketKey defaultUrl |> send model)
+
+        Send ->
+            { model | socketSend = "" } |> withCmd (WebSocket.makeSend model.socketKey model.socketSend |> send model)
+
+        Close ->
+            { model | socketLog = "Closing" :: model.socketLog }
+                |> withCmd (WebSocket.makeClose model.socketKey |> send model)
+
+        Process value ->
+            case
+                PortFunnels.processValue funnelDict value model.socketState model
+            of
+                Err error ->
+                    { model | socketError = Just error } |> withNoCmd
+
+                Ok res ->
+                    res
 
         SubmitAll ->
             ( { model | curStat = Loading }, Cmd.batch [ Task.attempt GotAllMems (getAllMembers model), getQuestDetails ] )
@@ -123,10 +171,11 @@ update msg model =
                         lowercasedkeys =
                             Dict.foldr smallKeys Dict.empty state
                     in
-                    ( { model | allQuestDetails = lowercasedkeys }, Cmd.none )
+                    { model | allQuestDetails = lowercasedkeys } |> withNoCmd
 
+                -- A missing quest details dictionary will show error messages for quest title/description
                 Err _ ->
-                    ( model, Cmd.none )
+                    model |> withNoCmd
 
         GotAllMems result ->
             {--let
@@ -139,7 +188,7 @@ update msg model =
                     ( { model | curMembers = Tuple.second state, curQuest = Tuple.first state, curStat = Success True [ "" ] }, Cmd.none )
 
                 Err _ ->
-                    ( { model | curStat = Failure }, Cmd.none )
+                    { model | curStat = Failure } |> withNoCmd
 
 
 smallKeys : String -> String -> Dict String String -> Dict String String
@@ -152,8 +201,104 @@ smallKeys key value newDict =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.none
+subscriptions =
+    PortFunnels.subscriptions Process
+
+
+
+-- WEBSOCKET PORTS
+
+
+handlers : List (Handler Model Msg)
+handlers =
+    [ WebSocketHandler socketHandler
+    ]
+
+
+funnelDict : FunnelDict Model Msg
+funnelDict =
+    PortFunnels.makeFunnelDict handlers getCmdPort
+
+
+getCmdPort : String -> Model -> (Value -> Cmd Msg)
+getCmdPort moduleName model =
+    PortFunnels.getCmdPort Process moduleName False
+
+
+cmdPort : Value -> Cmd Msg
+cmdPort =
+    PortFunnels.getCmdPort Process "" False
+
+
+send : Model -> WebSocket.Message -> Cmd Msg
+send model message =
+    WebSocket.send (getCmdPort WebSocket.moduleName model) message
+
+
+doIsLoaded : Model -> Model
+doIsLoaded model =
+    if not model.socketWasLoaded && WebSocket.isLoaded model.socketState.websocket then
+        { model
+            | socketWasLoaded = True
+        }
+
+    else
+        model
+
+
+socketHandler : Response -> State -> Model -> ( Model, Cmd Msg )
+socketHandler response state mdl =
+    let
+        model =
+            doIsLoaded
+                { mdl
+                    | socketState = state
+                    , socketError = Nothing
+                }
+    in
+    case response of
+        WebSocket.MessageReceivedResponse { message } ->
+            { model | socketLog = ("Received \"" ++ message ++ "\"") :: model.socketLog }
+                |> withNoCmd
+
+        WebSocket.ConnectedResponse r ->
+            { model | socketLog = ("Connected: " ++ r.description) :: model.socketLog }
+                |> withNoCmd
+
+        WebSocket.ClosedResponse { code, wasClean, expected } ->
+            { model
+                | socketLog =
+                    ("Closed, " ++ closedString code wasClean expected) :: model.socketLog
+            }
+                |> withNoCmd
+
+        WebSocket.ErrorResponse error ->
+            { model | socketLog = WebSocket.errorToString error :: model.socketLog }
+                |> withNoCmd
+
+        -- Let's just ignore reconnected responses for now ...
+        _ ->
+            model |> withNoCmd
+
+
+closedString : WebSocket.ClosedCode -> Bool -> Bool -> String
+closedString code wasClean expected =
+    "code: "
+        ++ WebSocket.closedCodeToString code
+        ++ ", "
+        ++ (if wasClean then
+                "clean"
+
+            else
+                "not clean"
+           )
+        ++ ", "
+        ++ (if expected then
+                "expected"
+
+            else
+                "not expected"
+           )
 
 
 
@@ -186,23 +331,38 @@ swapLayout model =
 
 viewChat : Model -> Html Msg
 viewChat model =
+    let
+        isConnected =
+            WebSocket.isConnected model.socketKey model.socketState.websocket
+    in
     div [ class "chat-master" ]
         [ div [ class "chat-converse" ]
-            [ p [] []
-            ]
-        , div
-            [ class "chat-interact" ]
-            [ input
-                [ class "chat-input"
-                , spellcheck True
-                , placeholder "Say something."
+            (logToHtml model.socketLog)
+        , div []
+            [ form [ onSubmit Send, class "chat-interact" ]
+                [ textInput Nothing "Say something!" model.socketSend UpdateSend
+                , button
+                    [ class "chat-submit", type_ "submit", disabled (not isConnected) ]
+                    [ text " -> " ]
                 ]
-                []
-            , button
-                [ class "chat-submit" ]
-                [ text " -> " ]
+            , br [] []
+            , if isConnected then
+                button [ onClick Close ] [ text "Close" ]
+
+              else
+                button [ onClick Connect ] [ text "connect" ]
             ]
         ]
+
+
+logToHtml : List String -> List (Html Msg)
+logToHtml log =
+    List.map stringToBr log
+
+
+stringToBr : String -> Html Msg
+stringToBr str =
+    p [] [ text str ]
 
 
 viewLoginForm : Model -> Html Msg

@@ -18,6 +18,7 @@ in
         haskellPackages.hindent
         elmPackages.elm
         elmPackages.elm-format
+        ripgrep
       ];
     };
   }
