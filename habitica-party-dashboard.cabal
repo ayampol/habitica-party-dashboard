@@ -16,7 +16,7 @@ name:                habitica-party-dashboard
 version:             0.1.0.0
 
 -- A short (one-line) description of the package.
--- synopsis:
+synopsis:
 
 -- A longer description of the package.
 -- description:
@@ -60,9 +60,39 @@ executable habitica-party-dashboard
   -- other-extensions:
 
   -- Other library packages from which modules are imported.
-  build-depends:       base >=4.12 && <4.13
-                     , websockets
+--  build-depends:       base >=4.12 && <4.13
+--                     , websockets
+--                     , text
+--                     , websockets-simple
+--                     , wai-transformers
+--                     , async
+--                     , stm
+--                     , libiserv 
+--                     , http-types
+--                     , wai
+--                     , warp
+--                     , wai-middleware-content-type
+  build-depends:  base >= 4.7 && < 5
                      , text
+                     , wai
+                     , wai-websockets
+                     , warp
+                     , websockets
+                     , http-types
+                     , safe
+--
+--  build-depends:   aeson
+--                 , async
+--                 , base >=4.7 && <5
+--                 , http-types
+--                 , stm
+--                 , text
+--                 , wai
+--                 , wai-middleware-content-type
+--                 , wai-transformers
+--                 , warp
+--                 , websockets >=0.12.4
+--                 , websockets-simple >=0.1.0
 
   -- Directories containing source files.
   hs-source-dirs:      src

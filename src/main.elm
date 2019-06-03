@@ -53,7 +53,8 @@ type alias Model =
 
 defaultUrl : String
 defaultUrl =
-    "wss://echo.websocket.org"
+    --    "wss://echo.websocket.org"
+    "ws://localhost:3000"
 
 
 type QuestStatus

@@ -1,92 +1,70 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
 
-import Control.Concurrent (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
-import Control.Exception (finally)
-import Control.Monad (forM_, forever)
-import Data.Char (isPunctuation, isSpace)
-import Data.Monoid (mappend)
-import qualified Data.Text as T
-import Data.Text (Text)
-import qualified Data.Text.IO as T
+import qualified Control.Concurrent as Concurrent
+import qualified Control.Exception as Exception
+import qualified Control.Monad as Monad
+import qualified Data.List as List
+import qualified Data.Maybe as Maybe
+import qualified Data.Text as Text
+import qualified Network.HTTP.Types as Http
+import qualified Network.Wai as Wai
+import qualified Network.Wai.Handler.Warp as Warp
+import qualified Network.Wai.Handler.WebSockets as WS
 import qualified Network.WebSockets as WS
-
--- Start off by accepting the connection
--- Perhaps check the path and headers to be sure?
-application :: MVar ServerState -> WS.ServerApp
-application state pending = do
-  conn <- WS.acceptRequest pending
-  WS.forkPingThread conn 30
-  msg <- WS.receiveData conn
-  clients <- readMVar state
-  case msg of
-    _
-      | not (prefix `T.isPrefixOf` msg) ->
-        WS.sendTextData conn ("Bad announcement" :: Text)
-      | any ($ fst client) [T.null, T.any isPunctuation, T.any isSpace] ->
-        WS.sendTextData conn ("Bad username" :: Text)
-      | clientExists client clients ->
-        WS.sendTextData conn ("User already exists" :: Text)
-      | otherwise ->
-        flip finally disconnect $ do
-          modifyMVar_ state $ \s -> do
-            let s' = addClient client s
-            WS.sendTextData conn $
-              "User: " `mappend` T.intercalate "," (map fst s)
-            broadcast (fst client `mappend` "joined") s'
-            return s'
-          talk client state
-      where prefix = "UserID: "
-            client = (T.drop (T.length prefix) msg, conn)
-            disconnect
-                    -- Remove client and return new state
-             = do
-              s <-
-                modifyMVar state $ \s ->
-                  let s' = removeClient client s
-                   in return (s', s')
-              broadcast (fst client `mappend` "disconnected") s
+import qualified Safe
 
 main :: IO ()
 main = do
-  state <- newMVar newServerState
-  WS.runServer "127.0.0.1" 9876 $ application state
+  state <- Concurrent.newMVar []
+  putStrLn "Running WS server..."
+  Warp.run 3000 $
+    WS.websocketsOr WS.defaultConnectionOptions (wsApp state) httpApp
 
--- Represent a client by their UserID 
-type Client = (Text, WS.Connection)
+httpApp :: Wai.Application
+httpApp _ respond =
+  respond $ Wai.responseLBS Http.status400 [] "Not a websocket request"
 
--- The state of the server is a list of connected clients. A
--- All messages come in through the webhook.
-type ServerState = [Client]
+type ClientId = Int
 
--- Initialize server state to empty list. 
-newServerState :: ServerState
-newServerState = []
+type Client = (ClientId, WS.Connection)
 
-numClients :: ServerState -> Int
-numClients = length
+type State = [Client]
 
--- Check if the user has already joined (do not allow multi-tab usage)
-clientExists :: Client -> ServerState -> Bool
-clientExists client = any ((== fst client) . fst)
+nextId :: State -> ClientId
+nextId = Maybe.maybe 0 ((+) 1) . Safe.maximumMay . List.map fst
 
--- Add a client, assumes they do not already exist
-addClient :: Client -> ServerState -> ServerState
-addClient client clients = client : clients
+connectClient :: WS.Connection -> Concurrent.MVar State -> IO ClientId
+connectClient conn stateRef =
+  Concurrent.modifyMVar stateRef $ \state -> do
+    let clientId = nextId state
+    return ((clientId, conn) : state, clientId)
 
--- Remove a client 
-removeClient :: Client -> ServerState -> ServerState
-removeClient client = filter ((/= fst client) . fst)
+withoutClient :: ClientId -> State -> State
+withoutClient clientId = List.filter ((/=) clientId . fst)
 
--- Send a message to all clients and log it on stdout
-broadcast :: Text -> ServerState -> IO ()
-broadcast message clients = do
-  T.putStrLn message
-  forM_ clients $ \(_, conn) -> WS.sendTextData conn message
+disconnectClient :: ClientId -> Concurrent.MVar State -> IO ()
+disconnectClient clientId stateRef =
+  Concurrent.modifyMVar_ stateRef $ \state ->
+    return $ withoutClient clientId state
 
-talk :: Client -> MVar ServerState -> IO ()
-talk (user, conn) state =
-  forever $ do
-    msg <- WS.receiveData conn
-    readMVar state >>= broadcast (user `mappend` ": " `mappend` msg)
+listen :: WS.Connection -> ClientId -> Concurrent.MVar State -> IO ()
+listen conn clientId stateRef =
+  Monad.forever $ do WS.receiveData conn >>= broadcast clientId stateRef
+
+broadcast :: ClientId -> Concurrent.MVar State -> Text.Text -> IO ()
+broadcast clientId stateRef msg = do
+  clients <- Concurrent.readMVar stateRef
+  let otherClients = withoutClient clientId clients
+  Monad.forM_ otherClients $ \(_, conn) -> WS.sendTextData conn msg
+
+wsApp :: Concurrent.MVar State -> WS.ServerApp
+wsApp stateRef pendingConn = do
+  conn <- WS.acceptRequest pendingConn
+  clientId <- connectClient conn stateRef
+  WS.forkPingThread conn 30
+  Exception.finally
+    (listen conn clientId stateRef)
+    (disconnectClient clientId stateRef)
