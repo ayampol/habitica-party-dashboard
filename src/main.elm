@@ -1,7 +1,7 @@
 module Main exposing (GetResult(..), Model, Msg(..), createAuthHeader, getPartyStatus, init, main, statDecoder, subscriptions, update, view, viewResult)
 
 import Browser
-import Cmd.Extra exposing (withCmd, withNoCmd)
+import Cmd.Extra exposing (withCmd, withCmds, withNoCmd)
 import Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (attribute, class, disabled, placeholder, spellcheck, src, type_, value)
@@ -42,6 +42,7 @@ type alias Model =
     , curQuest : QuestStatus
     , curMembers : List MemberStatus
     , allQuestDetails : Dict String String
+    , chatHistory : List ChatEntry
     , socketState : State
     , socketSend : String
     , socketKey : String
@@ -53,8 +54,13 @@ type alias Model =
 
 defaultUrl : String
 defaultUrl =
-    --    "wss://echo.websocket.org"
     "ws://localhost:3000"
+
+
+type alias ChatEntry =
+    { uuid : String
+    , text : String
+    }
 
 
 type QuestStatus
@@ -103,7 +109,7 @@ type Progress
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model "" "" Init NoQuest [] Dict.empty PortFunnels.initialState "Initial Message" "socket" Nothing [] False
+    ( Model "" "" Init NoQuest [] Dict.empty [] PortFunnels.initialState "Initial Message" "socket" Nothing [] False
     , Cmd.none
     )
 
@@ -117,6 +123,7 @@ type Msg
     | UpdateApikey String
     | SubmitAll
     | GotQuestDetails (Result Http.Error (Dict String String))
+    | GotChatHistory (Result Http.Error (List ChatEntry))
     | GotAllMems (Result Http.Error ( QuestStatus, List MemberStatus ))
       -- WebSocket Msgs
     | Connect
@@ -146,7 +153,8 @@ update msg model =
                 |> withCmd (WebSocket.makeOpenWithKey model.socketKey defaultUrl |> send model)
 
         Send ->
-            { model | socketSend = "" } |> withCmd (WebSocket.makeSend model.socketKey model.socketSend |> send model)
+            { model | socketSend = "" }
+                |> withCmd (WebSocket.makeSend model.socketKey model.socketSend |> send model)
 
         Close ->
             { model | socketLog = "Closing" :: model.socketLog }
@@ -163,7 +171,8 @@ update msg model =
                     res
 
         SubmitAll ->
-            ( { model | curStat = Loading }, Cmd.batch [ Task.attempt GotAllMems (getAllMembers model), getQuestDetails ] )
+            { model | curStat = Loading }
+                |> withCmds [ Task.attempt GotAllMems (getAllMembers model), getQuestDetails, Task.attempt GotChatHistory (getChatHistory model.username model.apiKey) ]
 
         GotQuestDetails result ->
             case result of
@@ -190,6 +199,26 @@ update msg model =
 
                 Err _ ->
                     { model | curStat = Failure } |> withNoCmd
+
+        GotChatHistory result ->
+            let
+                a =
+                    Debug.log "result" result
+            in
+            case result of
+                Ok state ->
+                    { model | chatHistory = state } |> withNoCmd
+
+                Err _ ->
+                    { model | chatHistory = errorChatHistory } |> withNoCmd
+
+
+errorChatHistory : List ChatEntry
+errorChatHistory =
+    [ { uuid = "ERROR"
+      , text = "Could not fetch history"
+      }
+    ]
 
 
 smallKeys : String -> String -> Dict String String -> Dict String String
@@ -338,7 +367,10 @@ viewChat model =
     in
     div [ class "chat-master" ]
         [ div [ class "chat-converse" ]
-            (logToHtml model.socketLog)
+            (logToHtml model.socketLog
+                ++ chatHistoryToHtml
+                    model.chatHistory
+            )
         , div []
             [ form [ onSubmit Send, class "chat-interact" ]
                 [ textInput Nothing "Say something!" model.socketSend UpdateSend
@@ -354,6 +386,25 @@ viewChat model =
                 button [ onClick Connect ] [ text "connect" ]
             ]
         ]
+
+
+chatHistoryToHtml : List ChatEntry -> List (Html Msg)
+chatHistoryToHtml entries =
+    List.map chatEntryToHtml entries
+
+
+chatEntryToHtml : ChatEntry -> Html Msg
+chatEntryToHtml entry =
+    p []
+        [ text entry.uuid
+        , text separator
+        , text entry.text
+        ]
+
+
+separator : String
+separator =
+    " : "
 
 
 logToHtml : List String -> List (Html Msg)
@@ -764,6 +815,18 @@ getMemberStatus currentQuest username apiKey id =
         }
 
 
+getChatHistory : String -> String -> Task Http.Error (List ChatEntry)
+getChatHistory username apiKey =
+    Http.task
+        { method = "GET"
+        , headers = createAuthHeader username apiKey
+        , url = "https://habitica.com/api/v3/groups/party/chat"
+        , body = Http.emptyBody
+        , resolver = Http.stringResolver <| handleJsonResponse <| chatDecoder
+        , timeout = Nothing
+        }
+
+
 getQuestDetails : Cmd Msg
 getQuestDetails =
     Http.get
@@ -801,6 +864,34 @@ statDecoder =
     succeed identity
         |> requiredAt [ "data", "quest", "active" ] bool
         |> Decode.andThen checkActive
+
+
+chatDecoder : Decoder (List ChatEntry)
+chatDecoder =
+    at [ "data" ] <|
+        Decode.list singleChatDecoder
+
+
+singleChatDecoder : Decoder ChatEntry
+singleChatDecoder =
+    succeed identity
+        |> required "uuid" string
+        |> Decode.andThen getUserIfNotSystem
+
+
+getUserIfNotSystem : String -> Decoder ChatEntry
+getUserIfNotSystem str =
+    let
+        username =
+            if str == "system" then
+                hardcoded "system"
+
+            else
+                required "user" string
+    in
+    succeed ChatEntry
+        |> username
+        |> required "text" string
 
 
 checkActive : Bool -> Decoder QuestStatus
