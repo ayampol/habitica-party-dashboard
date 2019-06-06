@@ -402,7 +402,10 @@ viewChat model =
             [ form [ onSubmit PostChat, class "chat-interact" ]
                 [ textInput Nothing "Say something!" model.socketSend UpdateSend
                 , button
-                    [ class "chat-submit", type_ "submit", disabled (not isConnected) ]
+                    [ class "chat-submit"
+                    , type_ "submit"
+                    , disabled (String.isEmpty model.socketSend)
+                    ]
                     [ text " -> " ]
                 ]
             , br [] []

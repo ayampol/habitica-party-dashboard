@@ -26,6 +26,11 @@ button {
     font-size: 16px;
 }
 
+button:disabled {
+    background-color: grey;
+    font-color: lightgrey;
+}
+
 input {
     background-color: #0505051c;
     padding: 10px 10px;
