@@ -41,6 +41,7 @@ type alias Model =
     , curStat : GetResult
     , curQuest : QuestStatus
     , curMembers : List MemberStatus
+    , curParty : Maybe String
     , allQuestDetails : Dict String String
     , chatHistory : List ChatEntry
     , socketState : State
@@ -109,7 +110,7 @@ type Progress
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model "" "" Init NoQuest [] Dict.empty [] PortFunnels.initialState "Initial Message" "socket" Nothing [] False
+    ( Model "" "" Init NoQuest [] Nothing Dict.empty [] PortFunnels.initialState "Initial Message" "socket" Nothing [] False
     , Cmd.none
     )
 
@@ -131,6 +132,8 @@ type Msg
     | Send
     | UpdateSend String
     | Process Value
+    | PostChat
+    | ChatSent (Result Http.Error ())
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -188,11 +191,10 @@ update msg model =
                     model |> withNoCmd
 
         GotAllMems result ->
-            {--let
+            let
                 a =
                     Debug.log "result" result
             in
-                --}
             case result of
                 Ok state ->
                     ( { model | curMembers = Tuple.second state, curQuest = Tuple.first state, curStat = Success True [ "" ] }, Cmd.none )
@@ -201,16 +203,31 @@ update msg model =
                     { model | curStat = Failure } |> withNoCmd
 
         GotChatHistory result ->
-            let
-                a =
-                    Debug.log "result" result
-            in
+            --            let
+            --                a =
+            --                    Debug.log "result" result
+            --            in
             case result of
                 Ok state ->
                     { model | chatHistory = state } |> withNoCmd
 
                 Err _ ->
                     { model | chatHistory = errorChatHistory } |> withNoCmd
+
+        PostChat ->
+            model |> withCmd (postChatMessage model.username model.apiKey model.socketSend)
+
+        ChatSent result ->
+            let
+                a =
+                    Debug.log "result" result
+            in
+            case result of
+                Ok state ->
+                    { model | socketSend = "" } |> withNoCmd
+
+                Err _ ->
+                    { model | chatHistory = errorChatSent model.chatHistory } |> withNoCmd
 
 
 errorChatHistory : List ChatEntry
@@ -219,6 +236,16 @@ errorChatHistory =
       , text = "Could not fetch history"
       }
     ]
+
+
+errorChatSent : List ChatEntry -> List ChatEntry
+errorChatSent entries =
+    List.append
+        [ { uuid = "ERROR"
+          , text = "Could not send message"
+          }
+        ]
+        entries
 
 
 smallKeys : String -> String -> Dict String String -> Dict String String
@@ -372,7 +399,7 @@ viewChat model =
                     model.chatHistory
             )
         , div []
-            [ form [ onSubmit Send, class "chat-interact" ]
+            [ form [ onSubmit PostChat, class "chat-interact" ]
                 [ textInput Nothing "Say something!" model.socketSend UpdateSend
                 , button
                     [ class "chat-submit", type_ "submit", disabled (not isConnected) ]
@@ -857,6 +884,24 @@ handleJsonResponse decoder response =
 
                 Ok result ->
                     Ok result
+
+
+postChatMessage : String -> String -> String -> Cmd Msg
+postChatMessage username apiKey chatmsg =
+    Http.request
+        { method = "POST"
+        , headers = createAuthHeader username apiKey
+        , url = "https://habitica.com/api/v3/groups/party/chat"
+        , body = Http.jsonBody <| chatEncoder chatmsg
+        , expect = Http.expectWhatever ChatSent
+        , timeout = Nothing
+        , tracker = Nothing
+        }
+
+
+chatEncoder : String -> JE.Value
+chatEncoder str =
+    JE.object [ ( "message", JE.string str ) ]
 
 
 statDecoder : Decoder QuestStatus
