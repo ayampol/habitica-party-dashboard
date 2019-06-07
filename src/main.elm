@@ -41,7 +41,6 @@ type alias Model =
     , curStat : GetResult
     , curQuest : QuestStatus
     , curMembers : List MemberStatus
-    , curParty : Maybe String
     , allQuestDetails : Dict String String
     , chatHistory : List ChatEntry
     , socketState : State
@@ -73,6 +72,7 @@ type alias QuestRecord =
     { progress : Progress
     , key : String
     , members : List ( String, Bool )
+    , partyId : String
     }
 
 
@@ -110,7 +110,7 @@ type Progress
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model "" "" Init NoQuest [] Nothing Dict.empty [] PortFunnels.initialState "Initial Message" "socket" Nothing [] False
+    ( Model "" "" Init NoQuest [] Dict.empty [] PortFunnels.initialState "Initial Message" "socket" Nothing [] False
     , Cmd.none
     )
 
@@ -952,6 +952,7 @@ checkActive active =
             |> requiredAt [ "data", "quest", "progress" ] progDecoder
             |> requiredAt [ "data", "quest", "key" ] string
             |> requiredAt [ "data", "quest", "members" ] (keyValuePairs bool)
+            |> requiredAt [ "data", "_id" ] string
             |> Decode.map Quest
 
 
