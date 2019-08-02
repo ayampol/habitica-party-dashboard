@@ -11,6 +11,7 @@ import Json.Decode as Decode exposing (Decoder, andThen, at, bool, dict, field, 
 import Json.Decode.Pipeline exposing (hardcoded, optional, optionalAt, required, requiredAt)
 import Json.Encode as JE exposing (Value)
 import List exposing (append)
+import Markdown as MD exposing (toHtml)
 import PortFunnel.WebSocket as WebSocket exposing (Response(..))
 import PortFunnels exposing (FunnelDict, Handler(..), State)
 import Svg exposing (animate, circle, svg)
@@ -49,6 +50,7 @@ type alias Model =
     , socketError : Maybe String
     , socketLog : List String
     , socketWasLoaded : Bool
+    , showSystem : Bool
     }
 
 
@@ -72,7 +74,7 @@ type alias QuestRecord =
     { progress : Progress
     , key : String
     , members : List ( String, Bool )
-    , partyId : String
+    , partyName : String
     }
 
 
@@ -110,7 +112,7 @@ type Progress
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model "" "" Init NoQuest [] Dict.empty [] PortFunnels.initialState "Initial Message" "socket" Nothing [] False
+    ( Model "" "" Init NoQuest [] Dict.empty [] PortFunnels.initialState "Initial Message" "socket" Nothing [] False False
     , Cmd.none
     )
 
@@ -134,10 +136,15 @@ type Msg
     | Process Value
     | PostChat
     | ChatSent (Result Http.Error ())
+    | ToggleSystem
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
+    let
+        connectToWs =
+            WebSocket.makeOpenWithKey model.socketKey defaultUrl |> send model
+    in
     case msg of
         UpdateUsername username ->
             { model | username = username } |> withNoCmd
@@ -154,6 +161,9 @@ update msg model =
                     ("Connecting to " ++ defaultUrl) :: model.socketLog
             }
                 |> withCmd (WebSocket.makeOpenWithKey model.socketKey defaultUrl |> send model)
+
+        ToggleSystem ->
+            { model | showSystem = not model.showSystem } |> withNoCmd
 
         Send ->
             { model | socketSend = "" }
@@ -175,7 +185,7 @@ update msg model =
 
         SubmitAll ->
             { model | curStat = Loading }
-                |> withCmds [ Task.attempt GotAllMems (getAllMembers model), getQuestDetails, Task.attempt GotChatHistory (getChatHistory model.username model.apiKey) ]
+                |> withCmds [ Task.attempt GotAllMems (getAllMembers model), getQuestDetails, Task.attempt GotChatHistory (getChatHistory model.username model.apiKey), connectToWs ]
 
         GotQuestDetails result ->
             case result of
@@ -396,7 +406,10 @@ viewChat model =
         [ div [ class "chat-converse" ]
             (logToHtml model.socketLog
                 ++ chatHistoryToHtml
-                    model.chatHistory
+                    (cleanChatHistory
+                        model.showSystem
+                        model.chatHistory
+                    )
             )
         , div []
             [ form [ onSubmit PostChat, class "chat-interact" ]
@@ -414,8 +427,35 @@ viewChat model =
 
               else
                 button [ onClick Connect ] [ text "connect" ]
+            , if model.showSystem then
+                button [ onClick ToggleSystem ] [ text "Hide System " ]
+
+              else
+                button [ onClick ToggleSystem ] [ text "Show System" ]
             ]
         ]
+
+
+
+-- Are we removing system messages?
+
+
+cleanChatHistory : Bool -> List ChatEntry -> List ChatEntry
+cleanChatHistory showSys entries =
+    if showSys then
+        entries
+
+    else
+        List.filter keepSystemMsg entries
+
+
+keepSystemMsg : ChatEntry -> Bool
+keepSystemMsg entry =
+    if String.contains "system" entry.uuid then
+        False
+
+    else
+        True
 
 
 chatHistoryToHtml : List ChatEntry -> List (Html Msg)
@@ -428,7 +468,7 @@ chatEntryToHtml entry =
     p []
         [ text entry.uuid
         , text separator
-        , text entry.text
+        , MD.toHtml [] entry.text
         ]
 
 
@@ -952,7 +992,7 @@ checkActive active =
             |> requiredAt [ "data", "quest", "progress" ] progDecoder
             |> requiredAt [ "data", "quest", "key" ] string
             |> requiredAt [ "data", "quest", "members" ] (keyValuePairs bool)
-            |> requiredAt [ "data", "_id" ] string
+            |> requiredAt [ "data", "name" ] string
             |> Decode.map Quest
 
 
@@ -1043,4 +1083,4 @@ memCollectDecoder =
 
 createAuthHeader : String -> String -> List Http.Header
 createAuthHeader username apikey =
-    [ Http.header "x-api-user" username, Http.header "x-api-key" apikey ]
+    [ Http.header "x-api-user" username, Http.header "x-api-key" apikey, Http.header "x-client" "61557dda-101d-4f4d-bc59-4a48e9de22d1-partydash" ]
