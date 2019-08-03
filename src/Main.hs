@@ -1,12 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Main where
 
 import qualified Control.Concurrent as Concurrent
 import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
+import Control.Monad.IO.Class (liftIO)
+
+--import Data.Aeso-n
 import Data.Aeson
+  ( FromJSON(..)
+  , Value(..)
+  , (.:)
+  , (.=)
+  , decode
+  , eitherDecode
+  , withObject
+  )
 import Data.Aeson.Types
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
@@ -33,7 +45,9 @@ httpApp :: Concurrent.MVar State -> Wai.Application
 httpApp state request respond =
   case Wai.requestMethod request of
     "POST" -> do
-      broadcastHabitica state "bleh"
+      body <- Wai.strictRequestBody request
+      let decodedJson = decode body :: Maybe ChatMsg
+      broadcastHabitica state (chatMsgToText (unMaybeChat decodedJson))
       respond (traceShow request Wai.responseLBS Http.status200 [] "")
     _ -> respond $ Wai.responseLBS Http.status400 [] "Not a websocket request"
 
@@ -44,6 +58,12 @@ type Client = (ClientId, WS.Connection)
 type State = [Client]
 
 type Chat = [ChatMsg]
+
+unMaybeChat :: Maybe ChatMsg -> ChatMsg
+unMaybeChat maybe =
+  case maybe of
+    Just a -> a
+    Nothing -> testMsg "bad msg"
 
 testMsg :: Text.Text -> ChatMsg
 testMsg txt = ChatMsg "Me" ("Some message I wrote, there's words wow " <> txt)
@@ -62,10 +82,15 @@ parseChatMsg :: Value -> Parser ChatMsg
 parseChatMsg _ = fail "expected data"
 
 instance FromJSON ChatMsg where
-  parseJson =
-    withObject "ChatMsg" $ \v ->
-      ChatMsg <$> ((v .: "chat") >>= (.: "user")) <*>
-      ((v .: "chat") >>= (.: "text"))
+  parseJSON =
+    withObject "chatMsg" $ \o -> do
+      chatO <- o .: "chat"
+      author <- chatO .: "user"
+      text <- chatO .: "text"
+      return ChatMsg {..}
+
+chatMsgToText :: ChatMsg -> Text.Text
+chatMsgToText msg = (author msg <> " : " <> text msg)
 
 nextId :: State -> ClientId
 nextId = Maybe.maybe 0 ((+) 1) . Safe.maximumMay . List.map fst
