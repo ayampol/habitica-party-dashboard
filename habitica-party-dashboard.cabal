@@ -68,6 +68,7 @@ executable habitica-party-dashboard
                      , websockets
                      , http-types
                      , safe
+                     , aeson
 
   -- Directories containing source files.
   hs-source-dirs:      src
